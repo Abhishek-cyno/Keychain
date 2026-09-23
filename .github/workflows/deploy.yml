@@ -1,0 +1,162 @@
+name: Build and deploy
+
+# Pull requests build only. Pushes to main build and then deploy.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Never let two deploys interleave on the same server. Queue instead of
+# cancelling: a half-finished rsync into a live docroot is worse than waiting.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        working-directory: web
+        env:
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+          VITE_PUBLIC_ORIGIN: ${{ vars.VITE_PUBLIC_ORIGIN }}
+        run: npm run build
+
+      # These two checks exist because both failures are silent and ship a
+      # broken site that still returns HTTP 200.
+      - name: Verify the bundle is deployable
+        working-directory: web
+        run: |
+          set -euo pipefail
+
+          # Wrong Vite base -> assets 404 under WordPress -> blank white page.
+          if ! grep -q '/keychain-app/assets/' dist/index.html; then
+            echo "::error::dist/index.html does not reference /keychain-app/. Check vite.config.js base."
+            exit 1
+          fi
+
+          # Missing VITE_API_BASE -> USING_MOCK stays true -> the live site
+          # would serve seeded demo doctors from localStorage.
+          if ! grep -rq 'script.google.com' dist/assets/; then
+            echo "::error::No Apps Script URL in the bundle. Set the VITE_API_BASE repository variable, or this deploys in mock mode."
+            exit 1
+          fi
+
+          echo "Bundle looks deployable:"
+          ls -la dist dist/assets
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to Lightsail
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Optional but recommended: add a required reviewer to this environment in
+    # repo Settings -> Environments -> production, and deploys pause for
+    # approval instead of going straight to the live site.
+    environment:
+      name: production
+      url: https://eqova.in/d/1
+
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          if [ -n "${DEPLOY_HOST_KEY:-}" ]; then
+            # Pinned host key: immune to a man-in-the-middle on first contact.
+            printf '%s\n' "$DEPLOY_HOST_KEY" > ~/.ssh/known_hosts
+          else
+            echo "::warning::DEPLOY_HOST_KEY not set; trusting whatever answers on first connect."
+            ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Ship to server
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_DOCROOT: ${{ vars.DEPLOY_DOCROOT }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i ~/.ssh/deploy_key -o BatchMode=yes"
+          TARGET="$DEPLOY_USER@$DEPLOY_HOST"
+          APPDIR="$DEPLOY_DOCROOT/keychain-app"
+
+          $SSH "$TARGET" 'rm -rf /tmp/keychain-app && mkdir -p /tmp/keychain-app'
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes -q -r dist/* "$TARGET:/tmp/keychain-app/"
+
+          # Wipe before copying: Vite fingerprints filenames, so old builds
+          # would otherwise leave orphaned assets behind indefinitely.
+          $SSH "$TARGET" "sudo mkdir -p '$APPDIR' \
+            && sudo rm -rf '$APPDIR'/* \
+            && sudo cp -r /tmp/keychain-app/* '$APPDIR'/ \
+            && sudo chown -R daemon:daemon '$APPDIR' \
+            && rm -rf /tmp/keychain-app \
+            && ls -la '$APPDIR'"
+
+      - name: Verify the live site
+        run: |
+          set -euo pipefail
+          fail=0
+
+          check() {
+            code=$(curl -s -o /dev/null -L -m 30 -w '%{http_code}' "$1" || echo 000)
+            printf '  %-45s -> %s\n' "$1" "$code"
+            [ "$code" = "200" ] || fail=1
+          }
+
+          # The profile route, the admin, and the WordPress site this deploy
+          # must never disturb.
+          check https://eqova.in/d/1
+          check https://eqova.in/admin
+          check https://www.eqova.in/
+
+          # The asset the page actually loads — catches a half-copied bundle.
+          asset=$(curl -s -L -m 30 https://eqova.in/d/1 | grep -o '/keychain-app/assets/[^"]*\.js' | head -1)
+          if [ -z "$asset" ]; then
+            echo "::error::Served HTML has no /keychain-app/ asset reference."
+            exit 1
+          fi
+          check "https://eqova.in$asset"
+
+          [ "$fail" = "0" ] || { echo "::error::Post-deploy verification failed."; exit 1; }
+          echo "Live and serving."

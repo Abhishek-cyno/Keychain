@@ -1,0 +1,13 @@
+{
+  "name": "eqova-keychain-tools",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Batch generators for keychain QR codes and NFC encoding lists.",
+  "scripts": {
+    "batch": "node generate-batch.js"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}

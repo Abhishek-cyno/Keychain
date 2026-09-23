@@ -1,0 +1,11 @@
+{
+  "files.eol": "\n",
+  "editor.formatOnSave": false,
+  "tailwindCSS.includeLanguages": { "javascript": "javascript" },
+  "files.associations": { "*.gs": "javascript" },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "tools/out": true
+  }
+}

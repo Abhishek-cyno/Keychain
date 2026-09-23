@@ -1,0 +1,31 @@
+# ===== Eqova keychain app — BEGIN =====
+#
+# Paste this block into the .htaccess file in the WordPress docroot on
+# eqova.in, ABOVE the "# BEGIN WordPress" block.
+#
+# Order is the whole point. WordPress's own rules end with a catch-all that
+# sends anything which is not a real file to index.php — that is why
+# eqova.in/d/1 currently 301s to /demo-page/ (WordPress guessing at a permalink
+# it does not have). These rules run first and hand /d/<id> and /admin to the
+# React app instead, so WordPress never sees them.
+#
+# Everything else on the site is untouched: no rule here matches the homepage,
+# posts, pages, wp-admin, or the REST API.
+#
+# The app's own JS and CSS live at /keychain-app/assets/... . Those are real
+# files on disk, and WordPress's "!-f" condition already lets real files
+# through, so they need no rule of their own.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Public profile — what every NFC chip and QR code points at.
+  # eqova.in/d/127 → the React app, URL unchanged in the address bar.
+  RewriteRule ^d/[0-9]+/?$ /keychain-app/index.html [L]
+
+  # Staff admin, and the assign/edit screen beneath it.
+  RewriteRule ^admin/?$ /keychain-app/index.html [L]
+  RewriteRule ^admin/keychain/[0-9]+/?$ /keychain-app/index.html [L]
+</IfModule>
+
+# ===== Eqova keychain app — END =====

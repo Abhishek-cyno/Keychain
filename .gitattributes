@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# These run on Linux. CRLF would break the shebang and the heredocs.
+*.sh      text eol=lf
+*.conf    text eol=lf
+*.gs      text eol=lf
+*.yml     text eol=lf
+
+*.png     binary
+*.jpg     binary
+*.pem     binary
