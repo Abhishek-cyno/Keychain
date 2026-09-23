@@ -111,8 +111,36 @@ jobs:
           DEPLOY_HOST="$(printf '%s' "${DEPLOY_HOST_RAW:-}" | tr -d '[:space:]')"
 
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+
+          # A key pasted from Windows arrives with CRLF line endings, and
+          # OpenSSH rejects those with a bare "error in libcrypto" at connect
+          # time. Strip the CRs and guarantee the trailing newline PEM needs.
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
+          # Validate here rather than letting scp fail cryptically later.
+          # The fingerprint is safe to log; the key itself never is.
+          if ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo -n "Deploy key OK: "
+            ssh-keygen -lf ~/.ssh/deploy_key
+          else
+            echo "::error::DEPLOY_SSH_KEY is not a valid private key."
+            first="$(head -1 ~/.ssh/deploy_key)"
+            case "$first" in
+              -----BEGIN*)
+                echo "Header looks right ($first) but the body is malformed."
+                echo "Lines in secret: $(wc -l < ~/.ssh/deploy_key). An ed25519 key has 7."
+                echo "Usual cause: line breaks lost when pasting. Re-copy the file verbatim."
+                ;;
+              ssh-*)
+                echo "This is a PUBLIC key. Paste the private one (no .pub extension)."
+                ;;
+              *)
+                echo "Does not start with a BEGIN header at all - the secret may be empty or truncated."
+                ;;
+            esac
+            exit 1
+          fi
 
           if [ -n "${DEPLOY_HOST_KEY:-}" ]; then
             # Pinned host key: immune to a man-in-the-middle on first contact.
