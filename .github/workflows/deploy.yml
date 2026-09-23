@@ -36,9 +36,19 @@ jobs:
       - name: Build
         working-directory: web
         env:
-          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
-          VITE_PUBLIC_ORIGIN: ${{ vars.VITE_PUBLIC_ORIGIN }}
-        run: npm run build
+          # Read as _RAW and stripped below. Values pasted into the GitHub UI
+          # routinely carry a trailing newline, which would otherwise be baked
+          # into the bundle as part of the URL.
+          VITE_API_BASE_RAW: ${{ vars.VITE_API_BASE }}
+          VITE_PUBLIC_ORIGIN_RAW: ${{ vars.VITE_PUBLIC_ORIGIN }}
+        run: |
+          set -euo pipefail
+          # URLs contain no whitespace, so deleting all of it is safe here.
+          export VITE_API_BASE="$(printf '%s' "${VITE_API_BASE_RAW:-}" | tr -d '[:space:]')"
+          export VITE_PUBLIC_ORIGIN="$(printf '%s' "${VITE_PUBLIC_ORIGIN_RAW:-}" | tr -d '[:space:]')"
+          echo "VITE_API_BASE      = [${VITE_API_BASE}]"
+          echo "VITE_PUBLIC_ORIGIN = [${VITE_PUBLIC_ORIGIN}]"
+          npm run build
 
       # These two checks exist because both failures are silent and ship a
       # broken site that still returns HTTP 200.
@@ -92,11 +102,14 @@ jobs:
 
       - name: Set up SSH
         env:
+          # Key material keeps its newlines — only the scalar host is trimmed.
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_HOST_RAW: ${{ vars.DEPLOY_HOST }}
           DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
         run: |
           set -euo pipefail
+          DEPLOY_HOST="$(printf '%s' "${DEPLOY_HOST_RAW:-}" | tr -d '[:space:]')"
+
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
@@ -112,14 +125,31 @@ jobs:
 
       - name: Ship to server
         env:
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-          DEPLOY_DOCROOT: ${{ vars.DEPLOY_DOCROOT }}
+          DEPLOY_HOST_RAW: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER_RAW: ${{ vars.DEPLOY_USER }}
+          DEPLOY_DOCROOT_RAW: ${{ vars.DEPLOY_DOCROOT }}
         run: |
           set -euo pipefail
+
+          # A value pasted into the GitHub UI often keeps a trailing newline.
+          # Unstripped, "bitnami\n@host\n" makes ssh reject the username
+          # outright ("remote username contains invalid characters").
+          trim() { printf '%s' "${1:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+          DEPLOY_HOST="$(trim "$DEPLOY_HOST_RAW")"
+          DEPLOY_USER="$(trim "$DEPLOY_USER_RAW")"
+          DEPLOY_DOCROOT="$(trim "$DEPLOY_DOCROOT_RAW")"
+
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_DOCROOT; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Repository variable $v is empty. Settings -> Secrets and variables -> Actions -> Variables."
+              exit 1
+            fi
+          done
+
           SSH="ssh -i ~/.ssh/deploy_key -o BatchMode=yes"
           TARGET="$DEPLOY_USER@$DEPLOY_HOST"
           APPDIR="$DEPLOY_DOCROOT/keychain-app"
+          echo "Deploying to [$TARGET] at [$APPDIR]"
 
           $SSH "$TARGET" 'rm -rf /tmp/keychain-app && mkdir -p /tmp/keychain-app'
           scp -i ~/.ssh/deploy_key -o BatchMode=yes -q -r dist/* "$TARGET:/tmp/keychain-app/"
