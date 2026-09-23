@@ -94,6 +94,44 @@ jobs:
       url: https://eqova.in/d/1
 
     steps:
+      # Report what actually reached the job before anything tries to use it.
+      # Lengths only: a secret's size is not sensitive, its content is.
+      - name: Preflight — are the inputs present?
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_DOCROOT: ${{ vars.DEPLOY_DOCROOT }}
+        run: |
+          set -uo pipefail
+          missing=0
+
+          report() {
+            len=${#2}
+            if [ "$len" -eq 0 ]; then
+              printf '  %-18s MISSING (%s)\n' "$1" "$3"
+              missing=1
+            else
+              printf '  %-18s present, %s chars\n' "$1" "$len"
+            fi
+          }
+
+          echo "Secrets (Settings -> Secrets and variables -> Actions -> Secrets tab):"
+          report DEPLOY_SSH_KEY  "${DEPLOY_SSH_KEY:-}"  "required"
+          report DEPLOY_HOST_KEY "${DEPLOY_HOST_KEY:-}" "optional"
+          echo "Variables (same page, Variables tab):"
+          report DEPLOY_HOST     "${DEPLOY_HOST:-}"     "required"
+          report DEPLOY_USER     "${DEPLOY_USER:-}"     "required"
+          report DEPLOY_DOCROOT  "${DEPLOY_DOCROOT:-}"  "required"
+
+          if [ "$missing" -ne 0 ]; then
+            echo
+            echo "::error::A required input is empty. A secret and a variable are different tabs on the same page — a value saved on the Variables tab is NOT readable via secrets.*, and vice versa. Check the name matches exactly, with no trailing space."
+            exit 1
+          fi
+          echo "All required inputs present."
+
       - name: Download bundle
         uses: actions/download-artifact@v4
         with:
