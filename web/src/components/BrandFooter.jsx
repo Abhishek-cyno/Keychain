@@ -1,52 +1,42 @@
-import logo from '../assets/eqova-medicare-logo.png'
+import mark from '../assets/eqova-mark.png'
 
 const SITE = 'https://www.eqova.in'
 
 /**
- * The Eqova Medicare sign-off, shown at the bottom of every screen a tapped
- * keychain can land on.
+ * The Eqova Medicare sign-off at the bottom of every screen a tapped keychain
+ * can land on.
+ *
+ * Uses the logo mark rather than the full wordmark: at the size this sits at,
+ * "eqova MEDICARE" would be about four pixels tall and unreadable, and the
+ * wordmark would only repeat the text beside it. The brand kit ships the mark
+ * as a standalone asset for exactly this.
  *
  * Imported as a module rather than referenced from public/, so Vite emits it
- * under the production base path — a bare /logo.png would 404 once the app is
+ * under the production base path — a bare /mark.png would 404 once the app is
  * mounted at /keychain-app/.
  */
 export default function BrandFooter({ className = '' }) {
   return (
-    <footer className={`px-6 py-6 text-center ${className}`}>
-      {/* slate-500 rather than 400: at 11px uppercase on a near-white card,
-          slate-400 sits around 2.8:1 contrast — under the 4.5:1 AA floor. */}
-      <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-        Powered by Eqova Medicare
+    <footer className={`px-6 py-4 text-center ${className}`}>
+      <p className="flex items-center justify-center gap-2 text-[13px] leading-none text-slate-500">
+        <img src={mark} alt="" width="96" height="120" className="h-[17px] w-auto" />
+        <span>
+          Powered by <span className="font-bold text-eqova-navy">Eqova Medicare</span>
+        </span>
       </p>
 
-      <img
-        src={logo}
-        alt="Eqova Medicare"
-        width="340"
-        height="185"
-        className="mx-auto mt-3 h-auto w-[150px] max-w-full"
-      />
-
-      <p className="mt-3 text-sm font-semibold text-eqova-navy">We make medicines</p>
-
-      <a
-        href={SITE}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-1.5 inline-flex items-center gap-1 text-sm font-semibold text-eqova-navy underline-offset-4 hover:underline"
-      >
-        Know more
-        <svg
-          className="h-3.5 w-3.5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          aria-hidden="true"
+      <p className="mt-2 text-[11px] leading-none text-slate-500">
+        We make medicines
+        <span className="px-1.5 text-slate-300">·</span>
+        <a
+          href={SITE}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-eqova-navy underline-offset-2 hover:underline"
         >
-          <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </a>
+          Know more
+        </a>
+      </p>
     </footer>
   )
 }
