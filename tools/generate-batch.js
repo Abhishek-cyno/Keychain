@@ -13,9 +13,10 @@
  * when its row is seeded, and this tool reads them back — inventing them
  * locally would produce QR codes that resolve to nothing.
  *
- * Usage:
- *   node generate-batch.js --api https://script.google.com/macros/s/AAA.../exec
- *   node generate-batch.js --api <url> --from 1 --to 500
+ * Usage (the API URL and origin are read from web/.env by default):
+ *   node generate-batch.js
+ *   node generate-batch.js --from 1 --to 100
+ *   node generate-batch.js --api <exec-url> --origin https://eqova.in
  *   node generate-batch.js --csv exported-sheet.csv        # offline fallback
  *
  * The --csv form takes a sheet exported as CSV and needs an ID column and a
@@ -23,14 +24,39 @@
  */
 
 import { mkdir, writeFile, readFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const ENV_FILE = join(HERE, '..', 'web', '.env')
+
+/**
+ * The API URL and public origin already live in web/.env, so read them from
+ * there rather than making anyone paste a long URL on the command line. An
+ * explicit --api or --origin still wins.
+ */
+function readEnv() {
+  if (!existsSync(ENV_FILE)) return {}
+  const out = {}
+  for (const line of readFileSync(ENV_FILE, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z_]+)\s*=\s*(.*)$/)
+    if (match) out[match[1]] = match[2].trim().replace(/^["']|["']$/g, '')
+  }
+  return out
+}
 
 function parseArgs(argv) {
-  const args = { from: 1, to: 0, origin: 'https://eqova.in', pad: 3, api: '', csv: '' }
+  const env = readEnv()
+  const args = {
+    from: 1,
+    to: 0,
+    origin: env.VITE_PUBLIC_ORIGIN || 'https://eqova.in',
+    pad: 3,
+    api: env.VITE_API_BASE || '',
+    csv: '',
+  }
 
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i]
@@ -42,8 +68,20 @@ function parseArgs(argv) {
     else if (key in args) args[key] = parseInt(value, 10)
   }
 
+  args.api = args.api.trim()
+  args.origin = args.origin.replace(/\/$/, '')
+
+  // "mock" means the frontend is running against the in-browser stand-in,
+  // which has no real codes to print.
+  if (args.api === 'mock') args.api = ''
+
   if (!args.api && !args.csv) {
-    throw new Error('Pass --api <exec-url> to read the codes, or --csv <file> for the offline path')
+    throw new Error(
+      'No API URL. Either set VITE_API_BASE in web/.env, or pass --api <exec-url>, or --csv <file>.'
+    )
+  }
+  if (args.api && !/^https:\/\/script\.google\.com\//.test(args.api)) {
+    throw new Error(`--api does not look like an Apps Script /exec URL: ${args.api}`)
   }
   if (!Number.isFinite(args.from) || args.from < 1) throw new Error('--from must be 1 or more')
   if (args.to && args.to < args.from) throw new Error('--to must be >= --from')
