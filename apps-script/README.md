@@ -27,19 +27,26 @@ Sheet so the sheet is never exposed to a browser.
 
 ## Sheet columns
 
-`ID · Name · ~~Specialization~~ · Organization · Designation · Phone · Email ·
-~~Bio~~ · ~~LinkedIn~~ · Website · ~~Links~~ · Status · Notes · CreatedAt ·
-UpdatedAt · Slug · Title · Mobile · Address · Remarks`
+Sixteen columns — identity, then the card exactly as the form asks for it,
+then bookkeeping:
 
-Column order is positional, so entries are only ever appended. The struck-out
-columns are retired — no longer written or returned — but stay in place so the
-columns after them do not move, and so previously captured data is not
-destroyed. Delete them by hand whenever you decide the old values are not
-wanted. `Organization` is the column previously headed `Hospital`; only the
-label changed, so existing values carried over untouched.
+`ID · Slug · Status · Title · Name · Designation · Organization · Email ·
+Mobile · Phone · Website · Address · Remarks · Notes · CreatedAt · UpdatedAt`
 
 A card is made of ten fields: **Title, Name, Designation, Organization, Email,
 Mobile, Phone, Website, Address, Remarks**. Only Name is required.
+
+### Changing the layout
+
+Column order is positional, so editing `COLUMNS` does **not** move existing
+data — the header would end up describing the wrong values. Run
+**`migrateSheet()`** instead: it reads the old sheet by header *name*, copies
+the tab to a dated backup, rewrites the rows into the new order, and deletes
+the surplus columns. It is safe to re-run; if the header already matches it
+does nothing.
+
+`setup()` refuses to run on a sheet still in the old layout, rather than
+relabelling columns whose data has not moved.
 
 `ID` is the number printed on the keychain. `Slug` is the code in its URL and
 the only way to reach it. `Notes` is staff-only: a public claim can never write

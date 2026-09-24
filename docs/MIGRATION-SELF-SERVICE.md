@@ -96,21 +96,30 @@ unclaimed one should show the setup form, and a claimed one the card.
 The card is now ten fields: **Title, Name, Designation, Organization, Email,
 Mobile, Phone, Website, Address, Remarks**. Only Name is required.
 
-Specialization, Bio, LinkedIn and Other-links are gone. Their columns stay in
-the sheet so the columns after them do not shift and the values already
-captured are not destroyed — the API simply no longer writes or returns them.
-Delete them by hand whenever you want the old values gone. `Organization` is
-the column previously headed `Hospital`; only the label changed.
+Specialization, Bio, LinkedIn and Other-links are gone, and the sheet is
+rewritten into sixteen columns:
 
-Applying it is the same two steps as any backend change:
+`ID · Slug · Status · Title · Name · Designation · Organization · Email ·
+Mobile · Phone · Website · Address · Remarks · Notes · CreatedAt · UpdatedAt`
 
-1. Paste the new `Code.gs` and **Deploy → Manage deployments → edit → New
-   version**.
-2. Run **`setup()`** once. It rewrites the header row, which is what adds
-   `Title`, `Mobile`, `Address` and `Remarks` and relabels `Hospital`.
+Applying it:
 
-Skipping step 2 leaves the sheet four columns short, and every claim silently
-drops those four values.
+1. Paste the new `Code.gs` and **save** it.
+2. Run **`migrateSheet()`** from the editor. It copies the tab to a dated
+   backup, moves every value into the new layout — matching by header name,
+   not position — and deletes the dropped columns.
+3. **Deploy → Manage deployments → edit → New version.**
+
+Run `migrateSheet()` before deploying, so the live endpoint never reads a
+half-migrated sheet. It is safe to re-run: if the header already matches, it
+does nothing.
+
+`setup()` now refuses to run on a sheet still in the old layout. Relabelling
+columns whose data has not moved would leave every value under the wrong
+heading, which is worse than doing nothing.
+
+If anything looks wrong afterwards, the backup tab holds the sheet exactly as
+it was. Deleting columns cannot be undone from a script.
 
 ## What the holder sees
 

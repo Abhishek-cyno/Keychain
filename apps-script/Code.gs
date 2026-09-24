@@ -30,31 +30,48 @@
 var SHEET_NAME = 'Keychains'
 
 /**
- * Column order is positional and must not be rearranged: the sheet already
- * holds live rows, and moving an entry would shift every value sideways.
+ * The sheet layout: identity first, then the card exactly as the form asks
+ * for it, then bookkeeping.
  *
- * New fields are therefore appended, and retired ones stay in place rather
- * than being deleted. 'Specialization', 'Bio', 'LinkedIn' and 'Links' are no
- * longer written or returned by the API — they are kept only so the columns
- * after them do not move, and so the data already captured is not destroyed.
- * Deleting them is a one-off sheet edit whenever you decide the old values
- * are no longer wanted.
- *
- * 'Organization' occupies the column previously headed 'Hospital'. Only the
- * label changed, so existing values carry over untouched.
+ * Column order is positional. Changing this array does NOT move existing data
+ * — run migrateSheet() to rewrite the sheet into a new layout, which takes a
+ * backup tab first.
  */
 var COLUMNS = [
   'ID',
+  'Slug',
+  'Status',
+  'Title',
   'Name',
-  'Specialization', // retired
+  'Designation',
+  'Organization',
+  'Email',
+  'Mobile',
+  'Phone',
+  'Website',
+  'Address',
+  'Remarks',
+  'Notes',
+  'CreatedAt',
+  'UpdatedAt',
+]
+
+/**
+ * The layout this sheet used before Specialization, Bio, LinkedIn and Links
+ * were dropped. migrateSheet() reads with this and writes with COLUMNS.
+ */
+var LEGACY_COLUMNS = [
+  'ID',
+  'Name',
+  'Specialization',
   'Organization',
   'Designation',
   'Phone',
   'Email',
-  'Bio', // retired
-  'LinkedIn', // retired
+  'Bio',
+  'LinkedIn',
   'Website',
-  'Links', // retired
+  'Links',
   'Status',
   'Notes',
   'CreatedAt',
@@ -402,11 +419,8 @@ function releaseKeychain(rawId) {
 
     var sheet = getSheet()
     var values = row.values.slice()
-    // Retired columns are cleared too: a reset should leave nothing of the
-    // previous holder behind, including values captured under the old schema.
     var clear = ['Title', 'Name', 'Designation', 'Organization', 'Email', 'Mobile',
-                 'Phone', 'Website', 'Address', 'Remarks', 'Notes',
-                 'Specialization', 'Bio', 'LinkedIn', 'Links']
+                 'Phone', 'Website', 'Address', 'Remarks', 'Notes']
     for (var i = 0; i < clear.length; i++) {
       values[columnIndex(clear[i]) - 1] = ''
     }
@@ -693,7 +707,17 @@ function setup() {
     Logger.log('Widened the sheet from ' + have + ' to ' + COLUMNS.length + ' columns.')
   }
 
-  var before = sheet.getRange(1, 1, 1, COLUMNS.length).getValues()[0].join(' | ')
+  var before = sheet.getRange(1, 1, 1, COLUMNS.length).getValues()[0]
+
+  // Relabelling a legacy sheet would leave every value under the wrong
+  // heading — the data does not move just because the header does.
+  if (String(before[2] || '') === 'Specialization' || String(before[1] || '') === 'Name') {
+    throw new Error(
+      'This sheet is still in the old layout. Run migrateSheet() first — it ' +
+        'backs the tab up and moves the data. Then re-run setup().'
+    )
+  }
+
   sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold')
   sheet.setFrozenRows(1)
 
@@ -705,6 +729,68 @@ function setup() {
   Logger.log(
     'Sheet ready. ' + (sheet.getLastRow() - 1) + ' rows, ' + added + ' slugs backfilled.'
   )
+}
+
+/**
+ * Rewrite the sheet into the current COLUMNS layout, dropping the retired
+ * Specialization, Bio, LinkedIn and Links columns.
+ *
+ * Run once from the editor, after pasting this file and saving. It is safe to
+ * re-run: if the header already matches COLUMNS it does nothing.
+ *
+ * A dated copy of the tab is made first. Deleting columns cannot be undone
+ * from a script, so the backup is the only way back if a mapping is wrong.
+ */
+function migrateSheet() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = spreadsheet.getSheetByName(SHEET_NAME)
+  if (!sheet) throw apiError('Sheet "' + SHEET_NAME + '" not found', 'NO_SHEET')
+
+  var width = Math.min(sheet.getMaxColumns(), Math.max(COLUMNS.length, LEGACY_COLUMNS.length))
+  var header = sheet.getRange(1, 1, 1, width).getValues()[0]
+
+  if (header.slice(0, COLUMNS.length).join('|') === COLUMNS.join('|')) {
+    Logger.log('Already in the current layout. Nothing to do.')
+    return
+  }
+
+  var lastRow = sheet.getLastRow()
+  var rows = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, LEGACY_COLUMNS.length).getValues()
+    : []
+
+  // Map by header NAME, not by position, so this still works if the old sheet
+  // had been reordered by hand at some point.
+  var indexOf = {}
+  for (var h = 0; h < header.length; h++) {
+    if (header[h]) indexOf[String(header[h])] = h
+  }
+
+  var migrated = rows.map(function (row) {
+    return COLUMNS.map(function (name) {
+      var at = indexOf[name]
+      return at === undefined || row[at] === undefined ? '' : row[at]
+    })
+  })
+
+  var backupName = 'Backup ' + Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd HHmm')
+  sheet.copyTo(spreadsheet).setName(backupName)
+  Logger.log('Backed up the tab as "' + backupName + '"')
+
+  sheet.clear()
+  sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold')
+  if (migrated.length) {
+    sheet.getRange(2, 1, migrated.length, COLUMNS.length).setValues(migrated)
+  }
+  sheet.setFrozenRows(1)
+
+  // Drop the now-empty columns to the right so the sheet ends at Remarks.
+  var surplus = sheet.getMaxColumns() - COLUMNS.length
+  if (surplus > 0) sheet.deleteColumns(COLUMNS.length + 1, surplus)
+
+  Logger.log('Migrated ' + migrated.length + ' rows to ' + COLUMNS.length + ' columns.')
+  Logger.log('New header: ' + COLUMNS.join(' | '))
+  Logger.log('Dropped: Specialization, Bio, LinkedIn, Links')
 }
 
 /**
