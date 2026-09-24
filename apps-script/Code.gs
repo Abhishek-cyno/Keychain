@@ -684,16 +684,65 @@ function setup() {
 
   if (!sheet) sheet = spreadsheet.insertSheet(SHEET_NAME)
 
-  // Rewrite the header so a sheet missing the Slug column gains it.
+  // A sheet narrower than COLUMNS makes every later getRange throw "those
+  // columns are out of bounds" — including the header write below, which is
+  // why a run can fail having changed nothing at all.
+  var have = sheet.getMaxColumns()
+  if (have < COLUMNS.length) {
+    sheet.insertColumnsAfter(have, COLUMNS.length - have)
+    Logger.log('Widened the sheet from ' + have + ' to ' + COLUMNS.length + ' columns.')
+  }
+
+  var before = sheet.getRange(1, 1, 1, COLUMNS.length).getValues()[0].join(' | ')
   sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold')
   sheet.setFrozenRows(1)
 
   var added = backfillSlugs()
   seedKeychains(500)
 
+  Logger.log('Header before: ' + before)
+  Logger.log('Header after:  ' + COLUMNS.join(' | '))
   Logger.log(
     'Sheet ready. ' + (sheet.getLastRow() - 1) + ' rows, ' + added + ' slugs backfilled.'
   )
+}
+
+/**
+ * Read-only check of what is actually in the spreadsheet.
+ *
+ * Run this from the editor when the sheet does not look the way it should: it
+ * reports the sheet this script is bound to, the real header row, and whether
+ * the code running in the editor matches the code that was deployed.
+ */
+function diagnose() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet()
+  Logger.log('Spreadsheet: ' + spreadsheet.getName())
+  Logger.log('URL:         ' + spreadsheet.getUrl())
+
+  var names = spreadsheet.getSheets().map(function (s) { return s.getName() })
+  Logger.log('Tabs:        ' + names.join(', '))
+
+  var sheet = spreadsheet.getSheetByName(SHEET_NAME)
+  if (!sheet) {
+    Logger.log('NO TAB NAMED "' + SHEET_NAME + '" — that is the problem.')
+    return
+  }
+
+  Logger.log('Grid:        ' + sheet.getMaxRows() + ' rows x ' + sheet.getMaxColumns() + ' columns')
+  Logger.log('Data rows:   ' + Math.max(0, sheet.getLastRow() - 1))
+
+  var width = Math.min(sheet.getMaxColumns(), COLUMNS.length)
+  var header = sheet.getRange(1, 1, 1, width).getValues()[0]
+  Logger.log('Header now:  ' + header.join(' | '))
+  Logger.log('Header want: ' + COLUMNS.join(' | '))
+
+  var missing = []
+  for (var i = 0; i < COLUMNS.length; i++) {
+    if (String(header[i] || '') !== COLUMNS[i]) {
+      missing.push('col ' + (i + 1) + ': got "' + (header[i] || '') + '", want "' + COLUMNS[i] + '"')
+    }
+  }
+  Logger.log(missing.length ? 'MISMATCHED:\n  ' + missing.join('\n  ') : 'Header matches. Run setup() only if you also want slugs backfilled.')
 }
 
 /** Give a slug to every row that lacks one. Existing slugs are never changed. */
