@@ -27,15 +27,23 @@ Sheet so the sheet is never exposed to a browser.
 
 ## Sheet columns
 
-`ID · Name · Specialization · Hospital · Designation · Phone · Email · Bio ·
-LinkedIn · Website · Links · Status · Notes · CreatedAt · UpdatedAt · Slug`
+`ID · Name · ~~Specialization~~ · Organization · Designation · Phone · Email ·
+~~Bio~~ · ~~LinkedIn~~ · Website · ~~Links~~ · Status · Notes · CreatedAt ·
+UpdatedAt · Slug · Title · Mobile · Address · Remarks`
 
-`Slug` is last on purpose: inserting it next to `ID` would shift every existing
-value one column sideways on a sheet that already holds data.
+Column order is positional, so entries are only ever appended. The struck-out
+columns are retired — no longer written or returned — but stay in place so the
+columns after them do not move, and so previously captured data is not
+destroyed. Delete them by hand whenever you decide the old values are not
+wanted. `Organization` is the column previously headed `Hospital`; only the
+label changed, so existing values carried over untouched.
+
+A card is made of ten fields: **Title, Name, Designation, Organization, Email,
+Mobile, Phone, Website, Address, Remarks**. Only Name is required.
 
 `ID` is the number printed on the keychain. `Slug` is the code in its URL and
-the only way to reach it. `Links` holds JSON. `Notes` is staff-only and a public
-claim can never write it.
+the only way to reach it. `Notes` is staff-only: a public claim can never write
+it, and it is never returned by the profile endpoint.
 
 Do not renumber `ID`s or rewrite `Slug`s by hand — both are printed on physical
 objects.
@@ -67,8 +75,10 @@ GET  ?action=stats
 GET  ?action=list&q=&status=&limit=50&offset=0
 ```
 
-`list` deliberately omits phone, email, bio and notes. The dashboard is not
-password-gated, so it must not be a directory of everyone's contact details.
+`list` returns only id, code, status, title, name, designation and organisation.
+Email, mobile, phone, address, remarks and notes are deliberately left out: the
+dashboard is not password-gated, so it must not be a directory of everyone's
+contact details.
 
 ### Staff, password required
 

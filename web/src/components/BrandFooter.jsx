@@ -27,7 +27,7 @@ export default function BrandFooter({ className = '' }) {
 
       <p className="mt-2 text-[11px] leading-none text-slate-500">
         We make medicines
-        <span className="px-1.5 text-slate-300">·</span>
+        <span className="px-0.5 text-slate-300">·</span>
         <a
           href={SITE}
           target="_blank"

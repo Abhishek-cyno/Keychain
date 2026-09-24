@@ -91,6 +91,27 @@ curl -sL "<exec-url>?action=list&limit=3"
 Every row must have a non-empty `slug`. Then open one real code on a phone: an
 unclaimed one should show the setup form, and a claimed one the card.
 
+## Field set change
+
+The card is now ten fields: **Title, Name, Designation, Organization, Email,
+Mobile, Phone, Website, Address, Remarks**. Only Name is required.
+
+Specialization, Bio, LinkedIn and Other-links are gone. Their columns stay in
+the sheet so the columns after them do not shift and the values already
+captured are not destroyed — the API simply no longer writes or returns them.
+Delete them by hand whenever you want the old values gone. `Organization` is
+the column previously headed `Hospital`; only the label changed.
+
+Applying it is the same two steps as any backend change:
+
+1. Paste the new `Code.gs` and **Deploy → Manage deployments → edit → New
+   version**.
+2. Run **`setup()`** once. It rewrites the header row, which is what adds
+   `Title`, `Mobile`, `Address` and `Remarks` and relabels `Hospital`.
+
+Skipping step 2 leaves the sheet four columns short, and every claim silently
+drops those four values.
+
 ## What the holder sees
 
 ```
@@ -126,5 +147,5 @@ alphabet (~8×10¹⁴ combinations) and come from `Utilities.getUuid()`, not
 or screenshot is a keychain anyone can claim.
 
 **The dashboard is still open.** `/admin` needs no password to *view*. It no
-longer shows contact details, but it does list names, hospitals and codes. If
+longer shows contact details, but it does list names, organisations and codes. If
 you want the whole panel behind the password, say so — it is a small change.

@@ -11,7 +11,7 @@ import DoctorFields, { EMPTY_DOCTOR, cleanDoctor, validateDoctor } from '../comp
  *
  * There is no "assign" path here any more — a blank keychain is filled in by
  * whoever taps it. This screen exists for fixing typos and for the occasional
- * "they moved hospital" request.
+ * "they changed organisation" request.
  */
 export default function KeychainEditor() {
   const { id } = useParams()

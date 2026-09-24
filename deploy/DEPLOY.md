@@ -146,7 +146,7 @@ the Apps Script **Script Properties**. The API enforces it, so it cannot be
 bypassed by calling the endpoint directly.
 
 Viewing the dashboard does not need the password. It lists numbers, codes,
-names and hospitals — but no phone numbers, emails or notes; those come from a
+names and organisations — but no phone, email, address or notes; those come from a
 password-gated endpoint. If you want the whole panel behind the password too,
 that is a small change.
 

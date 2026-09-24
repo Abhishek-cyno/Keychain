@@ -15,16 +15,16 @@ const SEED_COUNT = 24
 const LATENCY_MS = 180
 
 const PUBLIC_FIELDS = [
+  'title',
   'name',
-  'specialization',
-  'hospital',
   'designation',
-  'phone',
+  'organization',
   'email',
-  'bio',
-  'linkedin',
+  'mobile',
+  'phone',
   'website',
-  'links',
+  'address',
+  'remarks',
 ]
 
 const SLUG_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
@@ -44,16 +44,16 @@ function blank(id) {
     slug: makeSlug(),
     status: 'AVAILABLE',
     assigned: false,
+    title: '',
     name: '',
-    specialization: '',
-    hospital: '',
     designation: '',
-    phone: '',
+    organization: '',
     email: '',
-    bio: '',
-    linkedin: '',
+    mobile: '',
+    phone: '',
     website: '',
-    links: [],
+    address: '',
+    remarks: '',
     notes: '',
     createdAt: now,
     updatedAt: now,
@@ -66,28 +66,28 @@ function seed() {
   Object.assign(rows[0], {
     status: 'ACTIVE',
     assigned: true,
-    name: 'Dr. Amit Sharma',
-    specialization: 'Cardiologist',
-    hospital: 'ABC Hospital',
+    title: 'Dr.',
+    name: 'Amit Sharma',
     designation: 'Senior Consultant',
-    phone: '+91 98765 43210',
+    organization: 'ABC Hospital',
     email: 'amit.sharma@example.com',
-    bio: 'Interventional cardiologist with 18 years of experience in complex coronary work. Special interest in preventive cardiology and post-operative care.',
-    linkedin: 'linkedin.com/in/example',
+    mobile: '+91 98765 43210',
+    phone: '+91 22 2345 6789',
     website: 'abchospital.example.com',
+    address: '4th Floor, ABC Hospital\nLinking Road, Mumbai 400050',
+    remarks: 'Consulting hours 10am to 4pm, Monday to Friday.',
     notes: 'Claimed at the Mumbai event',
   })
 
   Object.assign(rows[1], {
     status: 'ACTIVE',
     assigned: true,
-    name: 'Dr. Rahul Verma',
-    specialization: 'Neurologist',
-    hospital: 'XYZ Hospital',
+    title: 'Dr.',
+    name: 'Rahul Verma',
     designation: 'Consultant',
-    phone: '+91 91234 56780',
+    organization: 'XYZ Hospital',
     email: 'rahul.verma@example.com',
-    bio: 'Focused on epilepsy and movement disorders.',
+    mobile: '+91 91234 56780',
   })
 
   Object.assign(rows[3], { status: 'BLOCKED', notes: 'Keychain damaged in transit' })
@@ -172,9 +172,10 @@ function listView(row) {
     slug: row.slug,
     status: row.status,
     assigned: Boolean(row.name),
+    title: row.title,
     name: row.name,
-    specialization: row.specialization,
-    hospital: row.hospital,
+    designation: row.designation,
+    organization: row.organization,
     updatedAt: row.updatedAt,
   }
 }
@@ -208,7 +209,7 @@ export function mockGet(params, ApiError) {
     const matched = rows.filter((row) => {
       if (status && row.status !== status) return false
       if (!query) return true
-      return [row.id, row.slug, row.name, row.hospital, row.specialization]
+      return [row.id, row.slug, row.name, row.organization, row.designation]
         .join(' ')
         .toLowerCase()
         .includes(query)
@@ -320,8 +321,7 @@ function normalize(doctor) {
   const input = doctor || {}
   const out = {}
   PUBLIC_FIELDS.forEach((field) => {
-    const value = input[field]
-    out[field] = field === 'links' ? (Array.isArray(value) ? value : []) : String(value || '').trim()
+    out[field] = String(input[field] || '').trim()
   })
   return out
 }

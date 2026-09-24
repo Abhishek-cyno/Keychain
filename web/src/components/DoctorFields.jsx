@@ -4,16 +4,16 @@
  */
 
 export const EMPTY_DOCTOR = {
+  title: '',
   name: '',
-  specialization: '',
-  hospital: '',
   designation: '',
-  phone: '',
+  organization: '',
   email: '',
-  bio: '',
-  linkedin: '',
+  mobile: '',
+  phone: '',
   website: '',
-  links: [],
+  address: '',
+  remarks: '',
 }
 
 export function Field({ label, hint, required, children }) {
@@ -35,53 +35,46 @@ export default function DoctorFields({ form, onChange }) {
   return (
     <>
       <section className="card space-y-4 p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Professional details</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Your details</h2>
 
-        <Field label="Full name" required>
-          <input
-            className="input"
-            value={form.name}
-            onChange={set('name')}
-            placeholder="Dr. Amit Sharma"
-            autoComplete="name"
-          />
-        </Field>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Specialization">
+        <div className="grid gap-4 sm:grid-cols-[7rem_1fr]">
+          <Field label="Title">
             <input
               className="input"
-              value={form.specialization}
-              onChange={set('specialization')}
-              placeholder="Cardiologist"
+              value={form.title}
+              onChange={set('title')}
+              placeholder="Dr."
+              autoComplete="honorific-prefix"
             />
           </Field>
-          <Field label="Designation">
+          <Field label="Name" required>
             <input
               className="input"
-              value={form.designation}
-              onChange={set('designation')}
-              placeholder="Senior Consultant"
+              value={form.name}
+              onChange={set('name')}
+              placeholder="Amit Sharma"
+              autoComplete="name"
             />
           </Field>
         </div>
 
-        <Field label="Hospital / organization">
+        <Field label="Designation">
           <input
             className="input"
-            value={form.hospital}
-            onChange={set('hospital')}
-            placeholder="ABC Hospital"
-            autoComplete="organization"
+            value={form.designation}
+            onChange={set('designation')}
+            placeholder="Senior Consultant"
+            autoComplete="organization-title"
           />
         </Field>
 
-        <Field label="About" hint="A short professional bio, shown under your name.">
-          <textarea
-            className="input min-h-[110px] resize-y"
-            value={form.bio}
-            onChange={set('bio')}
-            placeholder="Interventional cardiologist with 18 years of experience…"
+        <Field label="Organisation">
+          <input
+            className="input"
+            value={form.organization}
+            onChange={set('organization')}
+            placeholder="ABC Hospital"
+            autoComplete="organization"
           />
         </Field>
       </section>
@@ -93,7 +86,30 @@ export default function DoctorFields({ form, onChange }) {
           field blank to keep it off your card.
         </p>
 
+        <Field label="Email">
+          <input
+            className="input"
+            type="email"
+            inputMode="email"
+            value={form.email}
+            onChange={set('email')}
+            placeholder="you@example.com"
+            autoComplete="email"
+          />
+        </Field>
+
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Mobile">
+            <input
+              className="input"
+              type="tel"
+              inputMode="tel"
+              value={form.mobile}
+              onChange={set('mobile')}
+              placeholder="+91 98765 43210"
+              autoComplete="tel"
+            />
+          </Field>
           <Field label="Phone">
             <input
               className="input"
@@ -101,116 +117,55 @@ export default function DoctorFields({ form, onChange }) {
               inputMode="tel"
               value={form.phone}
               onChange={set('phone')}
-              placeholder="+91 98765 43210"
-              autoComplete="tel"
-            />
-          </Field>
-          <Field label="Email">
-            <input
-              className="input"
-              type="email"
-              inputMode="email"
-              value={form.email}
-              onChange={set('email')}
-              placeholder="you@example.com"
-              autoComplete="email"
+              placeholder="Landline or office"
             />
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="LinkedIn">
-            <input
-              className="input"
-              value={form.linkedin}
-              onChange={set('linkedin')}
-              placeholder="linkedin.com/in/…"
-            />
-          </Field>
-          <Field label="Website">
-            <input
-              className="input"
-              value={form.website}
-              onChange={set('website')}
-              placeholder="example.com"
-            />
-          </Field>
-        </div>
+        <Field label="Website">
+          <input
+            className="input"
+            value={form.website}
+            onChange={set('website')}
+            placeholder="example.com"
+            autoComplete="url"
+          />
+        </Field>
 
-        <ExtraLinks value={form.links} onChange={(links) => onChange('links', links)} />
+        <Field label="Address">
+          <textarea
+            className="input min-h-[80px] resize-y"
+            value={form.address}
+            onChange={set('address')}
+            placeholder="Clinic or office address"
+            autoComplete="street-address"
+          />
+        </Field>
+
+        <Field label="Remarks" hint="Anything else you would like on your card.">
+          <textarea
+            className="input min-h-[80px] resize-y"
+            value={form.remarks}
+            onChange={set('remarks')}
+            placeholder="Optional"
+          />
+        </Field>
       </section>
     </>
   )
 }
 
-function ExtraLinks({ value, onChange }) {
-  const links = value || []
-
-  function set(index, patch) {
-    onChange(links.map((l, i) => (i === index ? { ...l, ...patch } : l)))
-  }
-
-  return (
-    <div>
-      <label className="label">Other links</label>
-      <div className="space-y-2">
-        {links.map((link, index) => (
-          <div key={index} className="flex gap-2">
-            <input
-              className="input w-1/3"
-              value={link.label || ''}
-              onChange={(e) => set(index, { label: e.target.value })}
-              placeholder="Label"
-            />
-            <input
-              className="input flex-1"
-              value={link.url || ''}
-              onChange={(e) => set(index, { url: e.target.value })}
-              placeholder="https://…"
-            />
-            <button
-              type="button"
-              className="btn-secondary !px-3"
-              onClick={() => onChange(links.filter((_, i) => i !== index))}
-              aria-label="Remove link"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-      {links.length < 8 && (
-        <button
-          type="button"
-          className="mt-2 text-sm font-semibold text-brand-600 hover:underline"
-          onClick={() => onChange([...links, { label: '', url: '' }])}
-        >
-          + Add link
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** Trim and drop empty links before sending. */
+/** Trim everything before sending. */
 export function cleanDoctor(form) {
-  return {
-    ...form,
-    name: form.name.trim(),
-    specialization: form.specialization.trim(),
-    hospital: form.hospital.trim(),
-    designation: form.designation.trim(),
-    phone: form.phone.trim(),
-    email: form.email.trim(),
-    bio: form.bio.trim(),
-    linkedin: form.linkedin.trim(),
-    website: form.website.trim(),
-    links: (form.links || []).filter((l) => l && l.url && l.url.trim()),
-  }
+  const out = {}
+  Object.keys(EMPTY_DOCTOR).forEach((field) => {
+    out[field] = String(form[field] || '').trim()
+  })
+  return out
 }
 
 export function validateDoctor(form) {
-  if (!form.name.trim()) return 'Please enter your name.'
+  if (!String(form.name || '').trim()) return 'Please enter your name.'
   if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     return 'That email address does not look right.'
   }

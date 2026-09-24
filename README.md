@@ -105,7 +105,7 @@ the row, and refuses with `ALREADY_CLAIMED` if it is no longer free.
 **The public API returns only public fields.** Internal notes and timestamps
 never leave the API, and an unclaimed or blocked keychain returns no details.
 
-**The admin list carries no contact details.** Names and hospitals yes, phone
+**The admin list carries no contact details.** Names and organisations yes, phone
 and email no — those need the password.
 
 **Mobile first.** Nearly every tap is a phone held in one hand.
@@ -129,7 +129,7 @@ keychain in anyone's pocket is affected.
 ## Known limits
 
 - `/admin` needs no password to **view**. It shows no contact details, but it
-  does list names, hospitals and codes. Putting the whole panel behind the
+  does list names, organisations and codes. Putting the whole panel behind the
   password is a small change if you want it.
 - Apps Script quotas are generous for hundreds of claims but are not a CDN.
   Public reads are cached 60s (5s while unclaimed, so a claim shows up at once).

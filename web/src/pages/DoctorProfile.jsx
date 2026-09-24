@@ -120,25 +120,38 @@ function ProfileCard({ doctor }) {
       <div className="-mt-14 px-6 pb-6 text-center">
         <Avatar name={doctor.name} />
 
-        <h1 className="mt-4 text-[22px] font-bold leading-tight text-slate-900">{doctor.name}</h1>
+        <h1 className="mt-4 text-[22px] font-bold leading-tight text-slate-900">
+          {[doctor.title, doctor.name].filter(Boolean).join(' ')}
+        </h1>
 
-        {doctor.specialization && (
-          <p className="mt-1 text-[15px] font-semibold text-brand-600">{doctor.specialization}</p>
+        {doctor.designation && (
+          <p className="mt-1 text-[15px] font-semibold text-brand-600">{doctor.designation}</p>
         )}
 
-        {(doctor.hospital || doctor.designation) && (
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            {doctor.designation && <span>{doctor.designation}</span>}
-            {doctor.designation && doctor.hospital && <span className="px-1.5 text-slate-300">·</span>}
-            {doctor.hospital && <span>{doctor.hospital}</span>}
-          </p>
+        {doctor.organization && (
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">{doctor.organization}</p>
         )}
       </div>
 
-      {doctor.bio && (
+      {doctor.address && (
         <section className="border-t border-slate-100 px-6 py-5">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">About</h2>
-          <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-600">{doctor.bio}</p>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Address
+          </h2>
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-600">
+            {doctor.address}
+          </p>
+        </section>
+      )}
+
+      {doctor.remarks && (
+        <section className="border-t border-slate-100 px-6 py-5">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Remarks
+          </h2>
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-600">
+            {doctor.remarks}
+          </p>
         </section>
       )}
 
@@ -208,18 +221,24 @@ function ActionLink({ href, label, value, icon, external }) {
 
 function SaveContactButton({ doctor }) {
   function save() {
-    const title = [doctor.designation, doctor.specialization].filter(Boolean).join(', ')
+    // vCard reserves ';' and ',' as field separators, so anything the holder
+    // typed has to be escaped or the card splits at their punctuation.
+    const esc = (value) => String(value || '').replace(/([\\;,])/g, '\\$1').replace(/\r?\n/g, '\\n')
+    const full = [doctor.title, doctor.name].filter(Boolean).join(' ')
+
     const vcard = [
       'BEGIN:VCARD',
       'VERSION:3.0',
-      `N:${doctor.name || ''};;;;`,
-      `FN:${doctor.name || ''}`,
-      doctor.hospital ? `ORG:${doctor.hospital}` : '',
-      title ? `TITLE:${title}` : '',
-      doctor.phone ? `TEL;TYPE=CELL:${doctor.phone}` : '',
-      doctor.email ? `EMAIL;TYPE=WORK:${doctor.email}` : '',
-      doctor.website ? `URL:${doctor.website}` : '',
-      `NOTE:Eqova profile ${window.location.href}`,
+      `N:${esc(doctor.name)};;;${esc(doctor.title)};`,
+      `FN:${esc(full)}`,
+      doctor.organization ? `ORG:${esc(doctor.organization)}` : '',
+      doctor.designation ? `TITLE:${esc(doctor.designation)}` : '',
+      doctor.mobile ? `TEL;TYPE=CELL:${esc(doctor.mobile)}` : '',
+      doctor.phone ? `TEL;TYPE=WORK:${esc(doctor.phone)}` : '',
+      doctor.email ? `EMAIL;TYPE=WORK:${esc(doctor.email)}` : '',
+      doctor.website ? `URL:${esc(doctor.website)}` : '',
+      doctor.address ? `ADR;TYPE=WORK:;;${esc(doctor.address)};;;;` : '',
+      `NOTE:${doctor.remarks ? esc(doctor.remarks) + '\\n' : ''}Eqova profile ${window.location.href}`,
       'END:VCARD',
     ]
       .filter(Boolean)
@@ -281,15 +300,10 @@ const icons = {
       <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" />
     </svg>
   ),
-  linkedin: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
-      <path d="M6.94 8.5H4.06V20h2.88V8.5ZM5.5 4a1.68 1.68 0 1 0 0 3.36A1.68 1.68 0 0 0 5.5 4ZM20 13.9c0-3.1-1.66-4.55-3.87-4.55a3.34 3.34 0 0 0-3.03 1.67V8.5H10.2V20h2.9v-6.09c0-1.6.3-3.16 2.29-3.16s1.71 1.83 1.71 3.26V20H20v-6.1Z" />
-    </svg>
-  ),
-  link: (
+  mobile: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M10 13a4 4 0 0 0 5.66 0l2.5-2.5a4 4 0 0 0-5.66-5.66L11 6.34" strokeLinecap="round" />
-      <path d="M14 11a4 4 0 0 0-5.66 0l-2.5 2.5a4 4 0 1 0 5.66 5.66L13 17.66" strokeLinecap="round" />
+      <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+      <path d="M11 18.5h2" strokeLinecap="round" />
     </svg>
   ),
 }
@@ -306,14 +320,14 @@ function prettyUrl(href) {
 
 function buildLinks(doctor) {
   const links = []
+  const dial = (value) => `tel:${String(value).replace(/[^\d+]/g, '')}`
+
+  if (doctor.mobile) {
+    links.push({ label: 'Mobile', value: doctor.mobile, href: dial(doctor.mobile), icon: icons.mobile })
+  }
 
   if (doctor.phone) {
-    links.push({
-      label: 'Call',
-      value: doctor.phone,
-      href: `tel:${String(doctor.phone).replace(/[^\d+]/g, '')}`,
-      icon: icons.phone,
-    })
+    links.push({ label: 'Phone', value: doctor.phone, href: dial(doctor.phone), icon: icons.phone })
   }
 
   if (doctor.email) {
@@ -329,18 +343,6 @@ function buildLinks(doctor) {
     const href = normalizeUrl(doctor.website)
     links.push({ label: 'Website', value: prettyUrl(href), href, icon: icons.globe, external: true })
   }
-
-  if (doctor.linkedin) {
-    const href = normalizeUrl(doctor.linkedin)
-    links.push({ label: 'LinkedIn', value: 'View profile', href, icon: icons.linkedin, external: true })
-  }
-
-  const extra = Array.isArray(doctor.links) ? doctor.links : []
-  extra.forEach((entry) => {
-    if (!entry || !entry.url) return
-    const href = normalizeUrl(entry.url)
-    links.push({ label: entry.label || 'Link', value: prettyUrl(href), href, icon: icons.link, external: true })
-  })
 
   return links
 }

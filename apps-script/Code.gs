@@ -29,25 +29,55 @@
 
 var SHEET_NAME = 'Keychains'
 
-// Slug is appended last on purpose: existing sheets already hold data in the
-// earlier columns, and inserting mid-table would shift every value sideways.
+/**
+ * Column order is positional and must not be rearranged: the sheet already
+ * holds live rows, and moving an entry would shift every value sideways.
+ *
+ * New fields are therefore appended, and retired ones stay in place rather
+ * than being deleted. 'Specialization', 'Bio', 'LinkedIn' and 'Links' are no
+ * longer written or returned by the API — they are kept only so the columns
+ * after them do not move, and so the data already captured is not destroyed.
+ * Deleting them is a one-off sheet edit whenever you decide the old values
+ * are no longer wanted.
+ *
+ * 'Organization' occupies the column previously headed 'Hospital'. Only the
+ * label changed, so existing values carry over untouched.
+ */
 var COLUMNS = [
   'ID',
   'Name',
-  'Specialization',
-  'Hospital',
+  'Specialization', // retired
+  'Organization',
   'Designation',
   'Phone',
   'Email',
-  'Bio',
-  'LinkedIn',
+  'Bio', // retired
+  'LinkedIn', // retired
   'Website',
-  'Links',
+  'Links', // retired
   'Status',
   'Notes',
   'CreatedAt',
   'UpdatedAt',
   'Slug',
+  'Title',
+  'Mobile',
+  'Address',
+  'Remarks',
+]
+
+/** The fields a card is actually made of, in the order they are shown. */
+var CARD_FIELDS = [
+  'title',
+  'name',
+  'designation',
+  'organization',
+  'email',
+  'mobile',
+  'phone',
+  'website',
+  'address',
+  'remarks',
 ]
 
 var STATUSES = ['AVAILABLE', 'ASSIGNED', 'ACTIVE', 'BLOCKED']
@@ -59,15 +89,16 @@ var SLUG_LENGTH = 10
 // Caps on what a self-service claim may write. Without these, anyone holding a
 // slug could stuff megabytes into the sheet.
 var FIELD_LIMITS = {
+  title: 24,
   name: 120,
-  specialization: 120,
-  hospital: 160,
   designation: 120,
-  phone: 40,
+  organization: 160,
   email: 160,
-  bio: 2000,
-  linkedin: 300,
+  mobile: 40,
+  phone: 40,
   website: 300,
+  address: 400,
+  remarks: 1000,
   notes: 1000,
 }
 
@@ -170,16 +201,16 @@ function getPublicProfile(rawSlug) {
   }
 
   if (profile.assigned) {
-    profile.name = record.Name
-    profile.specialization = record.Specialization
-    profile.hospital = record.Hospital
-    profile.designation = record.Designation
-    profile.phone = record.Phone
-    profile.email = record.Email
-    profile.bio = record.Bio
-    profile.linkedin = record.LinkedIn
-    profile.website = record.Website
-    profile.links = parseLinks(record.Links)
+    profile.title = String(record.Title || '')
+    profile.name = String(record.Name || '')
+    profile.designation = String(record.Designation || '')
+    profile.organization = String(record.Organization || '')
+    profile.email = String(record.Email || '')
+    profile.mobile = String(record.Mobile || '')
+    profile.phone = String(record.Phone || '')
+    profile.website = String(record.Website || '')
+    profile.address = String(record.Address || '')
+    profile.remarks = String(record.Remarks || '')
   }
 
   // An unclaimed keychain is cached only briefly: the moment someone claims it
@@ -256,7 +287,7 @@ function listKeychains(params) {
     if (status && String(record.Status || 'AVAILABLE').toUpperCase() !== status) continue
 
     if (query) {
-      var haystack = [record.ID, record.Slug, record.Name, record.Hospital, record.Specialization]
+      var haystack = [record.ID, record.Slug, record.Name, record.Organization, record.Designation]
         .join(' ')
         .toLowerCase()
       if (haystack.indexOf(query) === -1) continue
@@ -267,9 +298,10 @@ function listKeychains(params) {
       slug: String(record.Slug || ''),
       status: String(record.Status || 'AVAILABLE').toUpperCase(),
       assigned: Boolean(record.Name),
+      title: String(record.Title || ''),
       name: String(record.Name || ''),
-      specialization: String(record.Specialization || ''),
-      hospital: String(record.Hospital || ''),
+      designation: String(record.Designation || ''),
+      organization: String(record.Organization || ''),
       updatedAt: asIso(record.UpdatedAt),
     })
   }
@@ -370,8 +402,11 @@ function releaseKeychain(rawId) {
 
     var sheet = getSheet()
     var values = row.values.slice()
-    var clear = ['Name', 'Specialization', 'Hospital', 'Designation', 'Phone', 'Email',
-                 'Bio', 'LinkedIn', 'Website', 'Links', 'Notes']
+    // Retired columns are cleared too: a reset should leave nothing of the
+    // previous holder behind, including values captured under the old schema.
+    var clear = ['Title', 'Name', 'Designation', 'Organization', 'Email', 'Mobile',
+                 'Phone', 'Website', 'Address', 'Remarks', 'Notes',
+                 'Specialization', 'Bio', 'LinkedIn', 'Links']
     for (var i = 0; i < clear.length; i++) {
       values[columnIndex(clear[i]) - 1] = ''
     }
@@ -447,16 +482,16 @@ function writeDoctor(row, current, input, status) {
     values[columnIndex(column) - 1] = value === undefined || value === null ? '' : value
   }
 
+  put('Title', capped(input.title, 'title'))
   put('Name', capped(input.name, 'name'))
-  put('Specialization', capped(input.specialization, 'specialization'))
-  put('Hospital', capped(input.hospital, 'hospital'))
   put('Designation', capped(input.designation, 'designation'))
-  put('Phone', capped(input.phone, 'phone'))
+  put('Organization', capped(input.organization, 'organization'))
   put('Email', capped(input.email, 'email'))
-  put('Bio', capped(input.bio, 'bio'))
-  put('LinkedIn', capped(input.linkedin, 'linkedin'))
+  put('Mobile', capped(input.mobile, 'mobile'))
+  put('Phone', capped(input.phone, 'phone'))
   put('Website', capped(input.website, 'website'))
-  put('Links', packLinks(input.links))
+  put('Address', capped(input.address, 'address'))
+  put('Remarks', capped(input.remarks, 'remarks'))
   put('Status', status)
   put('CreatedAt', current.CreatedAt || timestamp)
   put('UpdatedAt', timestamp)
@@ -467,18 +502,6 @@ function writeDoctor(row, current, input, status) {
   }
 
   sheet.getRange(row.index, 1, 1, COLUMNS.length).setValues([values])
-}
-
-function packLinks(links) {
-  if (!links || !links.length) return ''
-  var clean = []
-  for (var i = 0; i < links.length && i < 8; i++) {
-    var entry = links[i] || {}
-    var url = trim(entry.url)
-    if (!url) continue
-    clean.push({ label: trim(entry.label).substring(0, 40), url: url.substring(0, 300) })
-  }
-  return clean.length ? JSON.stringify(clean) : ''
 }
 
 function capped(value, field) {
@@ -572,29 +595,19 @@ function toAdminObject(record) {
     slug: String(record.Slug || ''),
     status: String(record.Status || 'AVAILABLE').toUpperCase(),
     assigned: Boolean(record.Name),
+    title: String(record.Title || ''),
     name: String(record.Name || ''),
-    specialization: String(record.Specialization || ''),
-    hospital: String(record.Hospital || ''),
     designation: String(record.Designation || ''),
-    phone: String(record.Phone || ''),
+    organization: String(record.Organization || ''),
     email: String(record.Email || ''),
-    bio: String(record.Bio || ''),
-    linkedin: String(record.LinkedIn || ''),
+    mobile: String(record.Mobile || ''),
+    phone: String(record.Phone || ''),
     website: String(record.Website || ''),
-    links: parseLinks(record.Links),
+    address: String(record.Address || ''),
+    remarks: String(record.Remarks || ''),
     notes: String(record.Notes || ''),
     createdAt: asIso(record.CreatedAt),
     updatedAt: asIso(record.UpdatedAt),
-  }
-}
-
-function parseLinks(value) {
-  if (!value) return []
-  try {
-    var parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch (err) {
-    return []
   }
 }
 

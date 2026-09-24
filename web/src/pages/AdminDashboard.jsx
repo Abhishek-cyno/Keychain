@@ -172,7 +172,7 @@ export default function AdminDashboard() {
             </svg>
             <input
               className="input pl-9"
-              placeholder="Search by keychain number, code, name or hospital"
+              placeholder="Search by keychain number, code, name or organisation"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               inputMode="search"
@@ -309,10 +309,10 @@ function KeychainTable({ rows, busyId, onEdit, onToggleBlock, onRelease }) {
               <td className="px-4 py-3">
                 {row.name ? (
                   <div>
-                    <div className="font-medium text-slate-900">{row.name}</div>
-                    {(row.specialization || row.hospital) && (
+                    <div className="font-medium text-slate-900">{[row.title, row.name].filter(Boolean).join(' ')}</div>
+                    {(row.designation || row.organization) && (
                       <div className="text-xs text-slate-500">
-                        {[row.specialization, row.hospital].filter(Boolean).join(' · ')}
+                        {[row.designation, row.organization].filter(Boolean).join(' · ')}
                       </div>
                     )}
                   </div>
@@ -345,11 +345,13 @@ function KeychainTable({ rows, busyId, onEdit, onToggleBlock, onRelease }) {
               <StatusBadge status={row.status} />
             </div>
             <p className="mt-1 truncate font-medium text-slate-900">
-              {row.name || <span className="font-normal text-slate-400">Not claimed yet</span>}
+              {[row.title, row.name].filter(Boolean).join(' ') || (
+                <span className="font-normal text-slate-400">Not claimed yet</span>
+              )}
             </p>
-            {(row.specialization || row.hospital) && (
+            {(row.designation || row.organization) && (
               <p className="truncate text-xs text-slate-500">
-                {[row.specialization, row.hospital].filter(Boolean).join(' · ')}
+                {[row.designation, row.organization].filter(Boolean).join(' · ')}
               </p>
             )}
             <p className="mt-1 font-mono text-xs text-slate-400">{row.slug}</p>
@@ -427,7 +429,7 @@ function EmptyState({ hasFilters }) {
       </p>
       <p className="mt-1 text-sm text-slate-500">
         {hasFilters
-          ? 'Try a different number, code, name or hospital.'
+          ? 'Try a different number, code, name or organisation.'
           : 'Use “Generate keychains” to create the rows for your printed batch.'}
       </p>
     </div>
