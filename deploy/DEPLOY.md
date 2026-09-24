@@ -1,6 +1,6 @@
 # Deploying to eqova.in
 
-Status: **live**. `https://eqova.in/d/:id` and `/admin` serve the React app;
+Status: **live**. `https://eqova.in/d/<code>` and `/admin` serve the React app;
 the WordPress site at `www.eqova.in` is untouched.
 
 ## What actually needs deploying
@@ -9,7 +9,7 @@ Only the frontend. There is no backend to deploy — the data layer is a Google
 Apps Script web app and Google hosts it.
 
 ```
-eqova.in/d/127  →  static React bundle (this repo)  →  Apps Script  →  Google Sheet
+eqova.in/d/<code>  →  static React bundle (this repo)  →  Apps Script  →  Google Sheet
    you deploy this ↑                    already deployed, hosted by Google ↑
 ```
 
@@ -56,8 +56,8 @@ VITE_PUBLIC_ORIGIN=https://eqova.in
 ```
 
 `VITE_PUBLIC_ORIGIN` matters because the app is served from `www.eqova.in`.
-Without it the admin's "Copy URL" would hand staff `www.eqova.in/d/127` while
-the keychains read `eqova.in/d/127`.
+Without it the admin's "Copy link" would hand staff `www.eqova.in/d/<code>` while
+the keychains read `eqova.in/d/<code>`.
 
 ```bash
 bash deploy/upload.sh ~/Downloads/LightsailDefaultKey-ap-south-1.pem
@@ -78,7 +78,7 @@ bash deploy/install-routing.sh ~/Downloads/LightsailDefaultKey-ap-south-1.pem
 Inserts [`vhost-block.conf`](vhost-block.conf) into the live vhost, directly
 after the non-www redirect and before WordPress's `<Directory>` block. Vhost
 rules run during URL translation, ahead of the per-directory WordPress rules,
-so `/d/:id` is claimed before WordPress's catch-all can guess it into a
+so `/d/<code>` is claimed before WordPress's catch-all can guess it into a
 permalink.
 
 Safety, in order: refuses if already installed; refuses unless the anchor line
@@ -98,10 +98,11 @@ bash deploy/install-routing.sh ~/Downloads/LightsailDefaultKey-ap-south-1.pem --
 or phone that matters:
 
 ```bash
-curl -sIL https://eqova.in/d/1
+curl -sIL https://eqova.in/d/zzzzzzzzzz
 ```
 
-Expect `301` → `www.eqova.in/d/1` → `200 text/html`, ending at `/d/1` — **not**
+A well-formed but fake code is fine here: a 200 proves Apache hands /d/<code>
+to the app. Expect `301` → `www.eqova.in/...` → `200 text/html` — **not**
 `/demo-page/`. Then confirm `https://www.eqova.in/` still serves WordPress.
 
 Note the page title is `Eqova` in a raw `curl`: the doctor's name is set by
@@ -112,7 +113,7 @@ JavaScript after the profile loads, so only a real browser shows it.
 Only once step 3 passes — printing is irreversible:
 
 ```bash
-cd tools && npm install && node generate-batch.js --from 1 --to 500 --origin https://eqova.in
+cd tools && npm install && node generate-batch.js --api "<your /exec URL>" --origin https://eqova.in
 ```
 
 ## Redeploying
@@ -135,30 +136,25 @@ visible in `/opt/bitnami/apache/logs/error_log`:
   mismatch, firing on REST batch requests.
 - Wordfence cannot write `wp-content/wflogs/geoip.mmdb`.
 
-Worth fixing separately; neither affects `/d/:id` or `/admin`, which never
+Worth fixing separately; neither affects `/d/<code>` or `/admin`, which never
 touch PHP.
 
-## /admin has no authentication
+## Staff access
 
-Anyone who opens `https://eqova.in/admin` can read every doctor's details and
-edit or block any keychain. The path is short and guessable, so on a public
-domain this is a real exposure.
+Editing, blocking, resetting and seeding all require `ADMIN_PASSWORD`, set in
+the Apps Script **Script Properties**. The API enforces it, so it cannot be
+bypassed by calling the endpoint directly.
 
-Cheapest fix, no code change — on the server:
+Viewing the dashboard does not need the password. It lists numbers, codes,
+names and hospitals — but no phone numbers, emails or notes; those come from a
+password-gated endpoint. If you want the whole panel behind the password too,
+that is a small change.
 
-```
-sudo htpasswd -c /etc/eqova-admin.htpasswd eqovastaff
-```
+Rotate the password after an event by editing the Script Property. No redeploy
+is needed.
 
-Then add to the vhost block and restart Apache:
+## Codes are secrets
 
-```apache
-<LocationMatch "^/admin">
-    AuthType Basic
-    AuthName "Eqova staff"
-    AuthUserFile /etc/eqova-admin.htpasswd
-    Require valid-user
-</LocationMatch>
-```
-
-Rotate after the event by re-running `htpasswd` without `-c`.
+An unclaimed keychain's URL is a claim link: whoever opens it can set the card
+up. Do not paste unclaimed links into email, chat or screenshots, and keep
+`tools/out/keychains.csv` with the same care as the keychains themselves.

@@ -2,69 +2,84 @@
 
 For the person at the desk. Two minutes to read.
 
+**The big change: you no longer register anyone.** You hand over a keychain,
+they tap it, they fill in their own details. Your job is to make that first tap
+happen in front of you, and to fix what goes wrong.
+
 ## Before the doors open
 
-1. Open `https://eqova.in/admin` on the desk laptop or tablet. It opens
-   straight to the dashboard — no sign-in.
-2. Check the **Available** tile shows the number of keychains in the box.
-3. Register one test doctor against a keychain you keep aside, scan it with a
-   phone, then block that keychain. If that works, the whole chain works.
+1. Open `https://eqova.in/admin` on the desk laptop. The dashboard opens without
+   a password; you only need one to edit.
+2. Check the **Unclaimed** tile matches the number of keychains in the box.
+3. Take one keychain aside and run it yourself: tap it, fill in a test name,
+   confirm the card appears. Then **Reset** it — note this issues a new code, so
+   put that keychain aside rather than handing it out.
+4. Make sure you know the staff password, and that it is not written anywhere a
+   visitor can see.
 
-Keep one phone on mobile data for checks — venue wifi is usually the first thing
-to fail.
+Keep one phone on mobile data. Venue wifi is usually the first thing to fail.
 
-## Registering a doctor
+## Handing over a keychain
 
-1. Take the next keychain from the tray and read the number printed on it.
-2. Type that number into the search box.
-3. The row should say **AVAILABLE**. Press **Assign**.
-4. Fill in what the doctor gives you. Only **name** is required — everything
-   else can be added later without touching the keychain.
-5. Press **Save & activate**.
-6. Hand over the keychain and ask them to tap it on their phone there and then.
+1. Take the next keychain from the tray.
+2. Give it to them and ask them to tap it on their phone **there and then**.
+3. The setup form opens. They fill it in and press **Create my card**.
+4. Ask them to tap it once more, so they see their own card.
 
-That last step matters. A doctor who has seen their own profile open trusts the
-keychain; one who discovers it later at home has nobody to ask.
+That last step matters. Someone who has seen their card open trusts the
+keychain; someone who discovers it at home has nobody to ask.
+
+If their phone has no NFC, the QR code on the keychain does exactly the same
+thing — any camera app.
+
+## What they will ask
+
+**"Who can see this?"**
+Anything they type is public to anyone who taps or scans that keychain. Blank
+fields simply do not appear. Only name is required.
+
+**"Can I change it later?"**
+Not themselves — the form says so before they submit. Send them to the Eqova
+team and staff can edit it.
+
+**"Do I need an app or an account?"**
+No. It opens in the browser.
 
 ## If something goes wrong
 
-**"Keychain #127 was just taken by another staff member."**
-Another desk claimed that number a moment ago. Nothing was saved. Take the next
-keychain from your tray — do not try to reuse the number.
+**They filled it in wrong, or it is someone else's details.**
+Search the keychain number in admin, press **Edit**, enter the staff password,
+fix it, save.
 
-**The doctor has already left and the details are wrong.**
-Search the keychain number, press **Edit**, fix it, save. Their URL does not
-change, so the keychain in their pocket now shows the corrected profile.
+**Someone claimed the wrong keychain entirely.**
+Find it, press **Reset**, enter the password. This erases the card **and issues
+a new code**, so the link printed on that physical keychain stops working. Set
+that keychain aside — do not hand it out again.
 
-**A keychain is lost, or handed to the wrong person.**
-Search the number, press **Block**. The URL then shows "This profile is
-currently unavailable." Unblock later if it turns up.
+**A keychain is lost or should stop working.**
+Find it, press **Block**. The URL then shows "currently unavailable" instead of
+that person's phone number.
 
-**A doctor does not want their phone number shown.**
-Leave it blank. Anything left blank simply does not appear on their profile.
-Only enter details they have agreed to publish.
+**"This keychain has already been set up."**
+Someone claimed it before. Give them a different one and flag it for review.
 
 **The admin page will not load.**
-Check the laptop is online. If other sites work and this does not, the data
-layer is the problem — switch to the paper fallback below and keep the queue
-moving.
+Check the laptop is online. Handing out keychains does not need the admin page
+at all — people can claim without you. Keep the queue moving.
 
 ## Paper fallback
 
-If the system is unreachable, do not stop the queue. On paper, for each doctor,
-record the **keychain number** and their details, and hand the keychain over
-with an explanation that their profile will be live within the hour.
+If people cannot claim on the spot — no signal, dead phone — write down the
+**keychain number** against their name and hand it over anyway. They can tap it
+later anywhere with signal.
 
-Anything written on paper can be entered later through the same admin screen.
-The keychain number is the only part that cannot be reconstructed afterwards, so
-write it first and check it twice.
+Do not collect their details on paper expecting to enter them yourself: staff
+cannot claim a keychain, only edit one that has been claimed.
 
 ## After the event
 
-- [ ] Enter every paper fallback record.
-- [ ] Filter the list by **ASSIGNED** — anything still there was started but not
-      finished, and needs chasing.
-- [ ] Spot-check ten profiles on a phone.
+- [ ] Filter by **Unclaimed** to see how many went out without being set up.
+- [ ] Spot-check ten cards on a phone.
 - [ ] Block the keychains that were damaged or returned.
-- [ ] Redeploy the Apps Script web app (or take it offline) once the desk no
-      longer needs `/admin` — the endpoint has no auth of its own.
+- [ ] Change `ADMIN_PASSWORD` in Script Properties so event-day staff can no
+      longer edit. No redeploy needed.

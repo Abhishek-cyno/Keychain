@@ -1,17 +1,16 @@
 /**
- * In-memory stand-in for the Apps Script API, used when VITE_API_BASE is unset
+ * In-browser stand-in for the Apps Script API, used when VITE_API_BASE is unset
  * or set to "mock".
  *
- * It exists so the UI can be developed and demoed before the sheet is deployed,
- * and so the event workflow can be rehearsed on a laptop with no network. It
- * implements the same request shapes, the same error codes, and the same
- * public/private field split as `apps-script/Code.gs` — including the
- * duplicate-assignment refusal, which is worth being able to demonstrate.
+ * It mirrors the real contract — slug addressing, the self-service claim, the
+ * password gate on staff writes, and the same error codes — so the whole flow
+ * can be rehearsed on a laptop before the sheet exists.
  *
  * State lives in localStorage, so it survives a reload and nothing else.
  */
 
-const STORE_KEY = 'eqova.mock.keychains'
+const STORE_KEY = 'eqova.mock.keychains.v2'
+const MOCK_PASSWORD = 'demo'
 const SEED_COUNT = 24
 const LATENCY_MS = 180
 
@@ -28,12 +27,21 @@ const PUBLIC_FIELDS = [
   'links',
 ]
 
+const SLUG_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
+
+function makeSlug() {
+  const bytes = new Uint8Array(10)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => SLUG_ALPHABET[b % SLUG_ALPHABET.length]).join('')
+}
+
 /* --------------------------------- store ---------------------------------- */
 
 function blank(id) {
   const now = new Date().toISOString()
   return {
     id,
+    slug: makeSlug(),
     status: 'AVAILABLE',
     assigned: false,
     name: '',
@@ -67,7 +75,7 @@ function seed() {
     bio: 'Interventional cardiologist with 18 years of experience in complex coronary work. Special interest in preventive cardiology and post-operative care.',
     linkedin: 'linkedin.com/in/example',
     website: 'abchospital.example.com',
-    notes: 'Registered at booth 2',
+    notes: 'Claimed at the Mumbai event',
   })
 
   Object.assign(rows[1], {
@@ -107,9 +115,14 @@ function save(rows) {
   }
 }
 
-function findRow(rows, rawId) {
-  const id = parseInt(rawId, 10)
-  return rows.find((r) => r.id === id) || null
+/** Exposed so the demo banner can show a slug that actually exists. */
+export function mockSampleSlugs() {
+  const rows = load()
+  return {
+    claimed: rows.find((r) => r.assigned && r.status === 'ACTIVE')?.slug || '',
+    claimable: rows.find((r) => !r.assigned && r.status === 'AVAILABLE')?.slug || '',
+    blocked: rows.find((r) => r.status === 'BLOCKED')?.slug || '',
+  }
 }
 
 /* -------------------------------- plumbing -------------------------------- */
@@ -124,13 +137,46 @@ function reject(message, code, ApiError) {
   )
 }
 
-function touch(row, patch, status) {
-  Object.assign(row, patch, {
+function requirePassword(password, ApiError) {
+  if (String(password || '') !== MOCK_PASSWORD) {
+    return reject(`Incorrect password. The demo password is "${MOCK_PASSWORD}".`, 'UNAUTHORISED', ApiError)
+  }
+  return null
+}
+
+function publicView(row) {
+  const status = row.status
+  const claimed = Boolean(row.name) && status !== 'AVAILABLE'
+  const profile = {
+    slug: row.slug,
+    number: row.id,
     status,
-    assigned: Boolean(patch.name || row.name),
-    updatedAt: new Date().toISOString(),
-  })
-  return row
+    assigned: claimed && status !== 'BLOCKED',
+    claimable: status === 'AVAILABLE' && !row.name,
+  }
+  if (profile.assigned) {
+    PUBLIC_FIELDS.forEach((f) => {
+      profile[f] = row[f]
+    })
+  }
+  return profile
+}
+
+function adminView(row) {
+  return { ...row }
+}
+
+function listView(row) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    status: row.status,
+    assigned: Boolean(row.name),
+    name: row.name,
+    specialization: row.specialization,
+    hospital: row.hospital,
+    updatedAt: row.updatedAt,
+  }
 }
 
 /* --------------------------------- routes --------------------------------- */
@@ -139,16 +185,10 @@ export function mockGet(params, ApiError) {
   const rows = load()
 
   if (params.action === 'profile') {
-    const row = findRow(rows, params.id)
-    if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
-
-    const profile = { id: row.id, status: row.status, assigned: row.assigned && row.status !== 'BLOCKED' }
-    if (profile.assigned) {
-      PUBLIC_FIELDS.forEach((field) => {
-        profile[field] = row[field]
-      })
-    }
-    return respond(profile)
+    const slug = String(params.slug || '').toLowerCase()
+    const row = rows.find((r) => r.slug === slug)
+    if (!row) return reject('No keychain with that code', 'NOT_FOUND', ApiError)
+    return respond(publicView(row))
   }
 
   if (params.action === 'stats') {
@@ -157,12 +197,6 @@ export function mockGet(params, ApiError) {
       stats[row.status] = (stats[row.status] || 0) + 1
     })
     return respond(stats)
-  }
-
-  if (params.action === 'keychain') {
-    const row = findRow(rows, params.id)
-    if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
-    return respond({ ...row })
   }
 
   if (params.action === 'list') {
@@ -174,13 +208,28 @@ export function mockGet(params, ApiError) {
     const matched = rows.filter((row) => {
       if (status && row.status !== status) return false
       if (!query) return true
-      return [row.id, row.name, row.hospital, row.specialization, row.designation]
+      return [row.id, row.slug, row.name, row.hospital, row.specialization]
         .join(' ')
         .toLowerCase()
         .includes(query)
     })
 
-    return respond({ total: matched.length, items: matched.slice(offset, offset + limit) })
+    return respond({
+      total: matched.length,
+      items: matched.slice(offset, offset + limit).map(listView),
+    })
+  }
+
+  // Everything below needs the password.
+  const denied = requirePassword(params.password, ApiError)
+  if (denied) return denied
+
+  if (params.action === 'verifyPassword') return respond({ ok: true })
+
+  if (params.action === 'keychain') {
+    const row = rows.find((r) => r.id === parseInt(params.id, 10))
+    if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
+    return respond(adminView(row))
   }
 
   return reject('Unknown action', 'UNKNOWN_ACTION', ApiError)
@@ -189,32 +238,65 @@ export function mockGet(params, ApiError) {
 export function mockPost(body, ApiError) {
   const rows = load()
 
-  if (body.action === 'assign') {
-    const row = findRow(rows, body.id)
-    if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
-    if (row.status !== (body.expectedStatus || 'AVAILABLE') || row.name) {
-      return reject(`Keychain ${row.id} is ${row.status}.`, 'CONFLICT', ApiError)
+  // Public, on purpose: holding the keychain is the authority.
+  if (body.action === 'claim') {
+    const slug = String(body.slug || '').toLowerCase()
+    const row = rows.find((r) => r.slug === slug)
+    if (!row) return reject('No keychain with that code', 'NOT_FOUND', ApiError)
+    if (row.status === 'BLOCKED') {
+      return reject('This keychain is not available.', 'BLOCKED', ApiError)
     }
-    touch(row, normalize(body.doctor), 'ACTIVE')
+    if (row.name || row.status !== 'AVAILABLE') {
+      return reject(
+        'This keychain has already been set up. Ask the Eqova team if you need it changed.',
+        'ALREADY_CLAIMED',
+        ApiError
+      )
+    }
+    if (!String(body.doctor?.name || '').trim()) {
+      return reject('Please enter your name.', 'NAME_REQUIRED', ApiError)
+    }
+
+    Object.assign(row, normalize(body.doctor), {
+      status: 'ACTIVE',
+      assigned: true,
+      updatedAt: new Date().toISOString(),
+    })
     save(rows)
-    return respond({ ...row })
+    return respond(publicView(row))
   }
 
+  const denied = requirePassword(body.password, ApiError)
+  if (denied) return denied
+
   if (body.action === 'update') {
-    const row = findRow(rows, body.id)
+    const row = rows.find((r) => r.id === parseInt(body.id, 10))
     if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
-    touch(row, normalize(body.doctor), row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE')
+    Object.assign(row, normalize(body.doctor), {
+      status: row.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE',
+      assigned: Boolean(body.doctor?.name),
+      notes: String(body.doctor?.notes || '').trim(),
+      updatedAt: new Date().toISOString(),
+    })
     save(rows)
-    return respond({ ...row })
+    return respond(adminView(row))
   }
 
   if (body.action === 'setStatus') {
-    const row = findRow(rows, body.id)
+    const row = rows.find((r) => r.id === parseInt(body.id, 10))
     if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
     row.status = String(body.status).toUpperCase()
     row.updatedAt = new Date().toISOString()
     save(rows)
     return respond({ id: row.id, status: row.status })
+  }
+
+  if (body.action === 'release') {
+    const row = rows.find((r) => r.id === parseInt(body.id, 10))
+    if (!row) return reject('No keychain with that ID', 'NOT_FOUND', ApiError)
+    Object.assign(row, blank(row.id), { createdAt: row.createdAt })
+    save(rows)
+    return respond({ id: row.id, status: 'AVAILABLE', slug: row.slug })
   }
 
   if (body.action === 'seed') {
@@ -237,9 +319,11 @@ export function mockPost(body, ApiError) {
 function normalize(doctor) {
   const input = doctor || {}
   const out = {}
-  PUBLIC_FIELDS.concat('notes').forEach((field) => {
+  PUBLIC_FIELDS.forEach((field) => {
     const value = input[field]
     out[field] = field === 'links' ? (Array.isArray(value) ? value : []) : String(value || '').trim()
   })
   return out
 }
+
+export const MOCK_PASSWORD_HINT = MOCK_PASSWORD

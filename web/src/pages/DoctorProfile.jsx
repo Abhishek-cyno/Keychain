@@ -2,21 +2,34 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { fetchProfile } from '../lib/api.js'
 import Spinner from '../components/Spinner.jsx'
+import { Shell, Notice } from '../components/ProfileShell.jsx'
+import ClaimCard from './ClaimCard.jsx'
 
+/**
+ * What a tapped keychain resolves to. Exactly one of:
+ *   - a card, if someone has already set this keychain up
+ *   - a form, if it is still unclaimed and whoever is holding it can claim it
+ *   - a notice, if it is blocked or the code is unknown
+ *
+ * The slug in the URL is the only key. There is no numeric lookup, by design:
+ * if /d/1 worked, the random code on the keychain would buy nothing.
+ */
 export default function DoctorProfile() {
-  const { id } = useParams()
+  const { slug } = useParams()
   const [state, setState] = useState({ status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
     setState({ status: 'loading' })
 
-    if (!/^\d+$/.test(String(id))) {
+    // Cheap client-side shape check, so an obviously wrong link does not cost
+    // a round trip. The server validates properly regardless.
+    if (!/^[a-z0-9]{4,32}$/i.test(String(slug || ''))) {
       setState({ status: 'error', code: 'NOT_FOUND' })
       return
     }
 
-    fetchProfile(id).then(
+    fetchProfile(String(slug).toLowerCase()).then(
       (data) => !cancelled && setState({ status: 'ready', data }),
       (err) => !cancelled && setState({ status: 'error', code: err.code, message: err.message })
     )
@@ -24,7 +37,7 @@ export default function DoctorProfile() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [slug])
 
   useEffect(() => {
     const doctor = state.status === 'ready' ? state.data : null
@@ -34,7 +47,7 @@ export default function DoctorProfile() {
   if (state.status === 'loading') {
     return (
       <Shell>
-        <Spinner label="Loading profile" />
+        <Spinner label="Loading" />
       </Shell>
     )
   }
@@ -43,10 +56,10 @@ export default function DoctorProfile() {
     return (
       <Shell>
         <Notice
-          title={state.code === 'NOT_FOUND' ? 'Profile not found' : 'Profile unavailable'}
+          title={state.code === 'NOT_FOUND' ? 'Keychain not recognised' : 'Something went wrong'}
           body={
             state.code === 'NOT_FOUND'
-              ? 'This link does not match any Eqova keychain.'
+              ? 'This link does not match any Eqova keychain. Check the code printed on yours.'
               : state.message || 'Please try again in a moment.'
           }
         />
@@ -67,12 +80,23 @@ export default function DoctorProfile() {
     )
   }
 
+  // Unclaimed: whoever is holding this keychain sets it up themselves.
+  if (doctor.claimable) {
+    return (
+      <ClaimCard
+        slug={doctor.slug}
+        number={doctor.number}
+        onClaimed={(profile) => setState({ status: 'ready', data: profile })}
+      />
+    )
+  }
+
   if (!doctor.assigned) {
     return (
       <Shell>
         <Notice
           title="This keychain is not active yet"
-          body={`Keychain #${doctor.id} has not been assigned to a profile. Visit the Eqova desk to activate it.`}
+          body="Please contact the Eqova team for assistance."
         />
       </Shell>
     )
@@ -82,16 +106,6 @@ export default function DoctorProfile() {
     <Shell>
       <ProfileCard doctor={doctor} />
     </Shell>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-
-function Shell({ children }) {
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-brand-700 via-brand-600 to-slate-50">
-      <div className="mx-auto w-full max-w-md px-4 pb-10 pt-8">{children}</div>
-    </div>
   )
 }
 
@@ -243,31 +257,6 @@ function SaveContactButton({ doctor }) {
       </svg>
       Save contact
     </button>
-  )
-}
-
-function Notice({ title, body }) {
-  return (
-    <div className="rounded-3xl bg-white p-8 text-center shadow-xl shadow-brand-900/15">
-      <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-slate-400">
-        <svg
-          className="h-7 w-7"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 8v5m0 3.5v.01" strokeLinecap="round" />
-        </svg>
-      </div>
-      <h1 className="mt-4 text-lg font-semibold text-slate-900">{title}</h1>
-      <p className="mt-2 text-sm leading-relaxed text-slate-500">{body}</p>
-      <p className="mt-6 text-xs text-slate-400">
-        Powered by <span className="font-semibold text-slate-500">Eqova</span>
-      </p>
-    </div>
   )
 }
 

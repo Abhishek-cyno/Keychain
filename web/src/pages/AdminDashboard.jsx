@@ -1,19 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   fetchStats,
   fetchKeychains,
   setKeychainStatus,
+  releaseKeychain,
   seedKeychains,
   profileUrl,
+  getPassword,
   STATUSES,
 } from '../lib/api.js'
 import Spinner from '../components/Spinner.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
+import PasswordPrompt from '../components/PasswordPrompt.jsx'
 
 const PAGE_SIZE = 50
 
+/**
+ * Staff view. Note there is no "assign" here any more: a keychain becomes
+ * someone's card only when they tap it themselves and fill in the form. Staff
+ * correct mistakes and take keychains out of circulation; they do not hand out
+ * identities.
+ */
 export default function AdminDashboard() {
+  const navigate = useNavigate()
+
   const [stats, setStats] = useState(null)
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
@@ -24,33 +35,36 @@ export default function AdminDashboard() {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
 
-  const load = useCallback(
-    async ({ q, status, from }) => {
-      setLoading(true)
-      setError('')
-      try {
-        const [statsData, list] = await Promise.all([
-          fetchStats(),
-          fetchKeychains({ q, status, limit: PAGE_SIZE, offset: from }),
-        ])
-        setStats(statsData)
-        setRows(list.items)
-        setTotal(list.total)
-      } catch (err) {
-        setError(err.message || 'Could not load keychains.')
-      } finally {
-        setLoading(false)
-      }
-    },
-    []
-  )
+  // Set while a password-gated action waits for the password.
+  const [pending, setPending] = useState(null)
+
+  const load = useCallback(async ({ q, status, from }) => {
+    setLoading(true)
+    setError('')
+    try {
+      const [statsData, list] = await Promise.all([
+        fetchStats(),
+        fetchKeychains({ q, status, limit: PAGE_SIZE, offset: from }),
+      ])
+      setStats(statsData)
+      setRows(list.items)
+      setTotal(list.total)
+    } catch (err) {
+      setError(err.message || 'Could not load keychains.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   // Debounce the search box so typing does not hammer the Apps Script quota.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setOffset(0)
-      load({ q: query, status: statusFilter, from: 0 })
-    }, query ? 350 : 0)
+    const timer = setTimeout(
+      () => {
+        setOffset(0)
+        load({ q: query, status: statusFilter, from: 0 })
+      },
+      query ? 350 : 0
+    )
     return () => clearTimeout(timer)
   }, [query, statusFilter, load])
 
@@ -63,10 +77,18 @@ export default function AdminDashboard() {
     load({ q: query, status: statusFilter, from: next })
   }
 
+  /** Run `action` once a password is available, prompting only if needed. */
+  function gated(action) {
+    if (getPassword()) {
+      action()
+      return
+    }
+    setPending(() => action)
+  }
+
   async function toggleBlock(row) {
     const next = row.status === 'BLOCKED' ? (row.assigned ? 'ACTIVE' : 'AVAILABLE') : 'BLOCKED'
-    const verb = next === 'BLOCKED' ? 'Block' : 'Unblock'
-    if (!window.confirm(`${verb} keychain #${row.id}?`)) return
+    if (!window.confirm(`${next === 'BLOCKED' ? 'Block' : 'Unblock'} keychain #${row.id}?`)) return
 
     setBusyId(row.id)
     try {
@@ -80,21 +102,56 @@ export default function AdminDashboard() {
     }
   }
 
+  async function release(row) {
+    const warning =
+      `Reset keychain #${row.id}?\n\n` +
+      `This erases ${row.name || 'the card'} and issues a NEW code, so the link printed on the ` +
+      `physical keychain will stop working. Only do this for a keychain you can re-label or scrap.`
+    if (!window.confirm(warning)) return
+
+    setBusyId(row.id)
+    try {
+      await releaseKeychain(row.id)
+      reload()
+    } catch (err) {
+      window.alert(err.message || 'Could not reset the keychain.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const pageLabel = useMemo(() => {
     if (!total) return '0 keychains'
-    const first = offset + 1
-    const last = Math.min(offset + rows.length, total)
-    return `${first}–${last} of ${total}`
+    return `${offset + 1}–${Math.min(offset + rows.length, total)} of ${total}`
   }, [offset, rows.length, total])
 
   return (
     <div className="space-y-6">
+      {pending && (
+        <PasswordPrompt
+          onUnlocked={() => {
+            const action = pending
+            setPending(null)
+            action()
+          }}
+          onCancel={() => setPending(null)}
+        />
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Keychains</h1>
-          <p className="text-sm text-slate-500">Assign a keychain to a doctor, or edit an existing profile.</p>
+          <p className="text-sm text-slate-500">
+            Cards are created by whoever taps the keychain. Staff correct and withdraw them.
+          </p>
         </div>
-        <SeedButton onDone={reload} />
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => gated(() => runSeed(reload))}
+        >
+          Generate keychains
+        </button>
       </div>
 
       <StatsRow stats={stats} />
@@ -115,7 +172,7 @@ export default function AdminDashboard() {
             </svg>
             <input
               className="input pl-9"
-              placeholder="Search by keychain ID, doctor, hospital or specialization"
+              placeholder="Search by keychain number, code, name or hospital"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               inputMode="search"
@@ -137,7 +194,9 @@ export default function AdminDashboard() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
       )}
 
       {loading ? (
@@ -146,7 +205,13 @@ export default function AdminDashboard() {
         <EmptyState hasFilters={Boolean(query || statusFilter)} />
       ) : (
         <>
-          <KeychainTable rows={rows} busyId={busyId} onToggleBlock={toggleBlock} />
+          <KeychainTable
+            rows={rows}
+            busyId={busyId}
+            onEdit={(row) => gated(() => navigate(`/admin/keychain/${row.id}`))}
+            onToggleBlock={(row) => gated(() => toggleBlock(row))}
+            onRelease={(row) => gated(() => release(row))}
+          />
           <div className="flex items-center justify-between gap-3 text-sm text-slate-500">
             <span>{pageLabel}</span>
             <div className="flex gap-2">
@@ -174,12 +239,32 @@ export default function AdminDashboard() {
 
 /* -------------------------------------------------------------------------- */
 
+async function runSeed(onDone) {
+  const answer = window.prompt(
+    'Create keychain rows up to which number?\n\nExisting rows are never touched — this only fills in missing numbers, each with its own random code.',
+    '500'
+  )
+  if (!answer) return
+  const count = parseInt(answer, 10)
+  if (!Number.isFinite(count) || count < 1) {
+    window.alert('Enter a whole number, for example 500.')
+    return
+  }
+  try {
+    const result = await seedKeychains(count)
+    window.alert(`Added ${result.created} keychains. The sheet now holds ${result.total}.`)
+    onDone()
+  } catch (err) {
+    window.alert(err.message || 'Could not create the rows.')
+  }
+}
+
 function StatsRow({ stats }) {
   const tiles = [
     { label: 'Total', value: stats?.total, tone: 'text-slate-900' },
-    { label: 'Available', value: stats?.AVAILABLE, tone: 'text-slate-600' },
-    { label: 'Assigned', value: stats?.ASSIGNED, tone: 'text-amber-600' },
-    { label: 'Active', value: stats?.ACTIVE, tone: 'text-emerald-600' },
+    { label: 'Unclaimed', value: stats?.AVAILABLE, tone: 'text-slate-600' },
+    { label: 'In progress', value: stats?.ASSIGNED, tone: 'text-amber-600' },
+    { label: 'Live', value: stats?.ACTIVE, tone: 'text-emerald-600' },
     { label: 'Blocked', value: stats?.BLOCKED, tone: 'text-red-600' },
   ]
 
@@ -197,17 +282,16 @@ function StatsRow({ stats }) {
   )
 }
 
-function KeychainTable({ rows, busyId, onToggleBlock }) {
+function KeychainTable({ rows, busyId, onEdit, onToggleBlock, onRelease }) {
   return (
     <div className="card overflow-hidden">
-      {/* Desktop */}
       <table className="hidden w-full text-left text-sm md:table">
         <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3 font-semibold">ID</th>
+            <th className="px-4 py-3 font-semibold">No.</th>
+            <th className="px-4 py-3 font-semibold">Code</th>
             <th className="px-4 py-3 font-semibold">Status</th>
-            <th className="px-4 py-3 font-semibold">Doctor</th>
-            <th className="px-4 py-3 font-semibold">Hospital</th>
+            <th className="px-4 py-3 font-semibold">Card</th>
             <th className="px-4 py-3 font-semibold">Updated</th>
             <th className="px-4 py-3 text-right font-semibold">Actions</th>
           </tr>
@@ -218,6 +302,7 @@ function KeychainTable({ rows, busyId, onToggleBlock }) {
               <td className="px-4 py-3 font-mono font-semibold tabular-nums text-slate-900">
                 {String(row.id).padStart(3, '0')}
               </td>
+              <td className="px-4 py-3 font-mono text-xs text-slate-500">{row.slug}</td>
               <td className="px-4 py-3">
                 <StatusBadge status={row.status} />
               </td>
@@ -225,48 +310,57 @@ function KeychainTable({ rows, busyId, onToggleBlock }) {
                 {row.name ? (
                   <div>
                     <div className="font-medium text-slate-900">{row.name}</div>
-                    {row.specialization && (
-                      <div className="text-xs text-slate-500">{row.specialization}</div>
+                    {(row.specialization || row.hospital) && (
+                      <div className="text-xs text-slate-500">
+                        {[row.specialization, row.hospital].filter(Boolean).join(' · ')}
+                      </div>
                     )}
                   </div>
                 ) : (
-                  <span className="text-slate-400">—</span>
+                  <span className="text-slate-400">Not claimed yet</span>
                 )}
               </td>
-              <td className="px-4 py-3 text-slate-600">{row.hospital || <span className="text-slate-400">—</span>}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{formatDate(row.updatedAt)}</td>
               <td className="px-4 py-3">
-                <RowActions row={row} busy={busyId === row.id} onToggleBlock={onToggleBlock} />
+                <RowActions
+                  row={row}
+                  busy={busyId === row.id}
+                  onEdit={onEdit}
+                  onToggleBlock={onToggleBlock}
+                  onRelease={onRelease}
+                />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* Mobile */}
       <ul className="divide-y divide-slate-100 md:hidden">
         {rows.map((row) => (
           <li key={row.id} className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm font-bold tabular-nums text-slate-900">
-                    #{String(row.id).padStart(3, '0')}
-                  </span>
-                  <StatusBadge status={row.status} />
-                </div>
-                <p className="mt-1 truncate font-medium text-slate-900">
-                  {row.name || <span className="font-normal text-slate-400">Unassigned</span>}
-                </p>
-                {(row.specialization || row.hospital) && (
-                  <p className="truncate text-xs text-slate-500">
-                    {[row.specialization, row.hospital].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-bold tabular-nums text-slate-900">
+                #{String(row.id).padStart(3, '0')}
+              </span>
+              <StatusBadge status={row.status} />
             </div>
+            <p className="mt-1 truncate font-medium text-slate-900">
+              {row.name || <span className="font-normal text-slate-400">Not claimed yet</span>}
+            </p>
+            {(row.specialization || row.hospital) && (
+              <p className="truncate text-xs text-slate-500">
+                {[row.specialization, row.hospital].filter(Boolean).join(' · ')}
+              </p>
+            )}
+            <p className="mt-1 font-mono text-xs text-slate-400">{row.slug}</p>
             <div className="mt-3">
-              <RowActions row={row} busy={busyId === row.id} onToggleBlock={onToggleBlock} />
+              <RowActions
+                row={row}
+                busy={busyId === row.id}
+                onEdit={onEdit}
+                onToggleBlock={onToggleBlock}
+                onRelease={onRelease}
+              />
             </div>
           </li>
         ))}
@@ -275,9 +369,9 @@ function KeychainTable({ rows, busyId, onToggleBlock }) {
   )
 }
 
-function RowActions({ row, busy, onToggleBlock }) {
+function RowActions({ row, busy, onEdit, onToggleBlock, onRelease }) {
   const [copied, setCopied] = useState(false)
-  const url = profileUrl(row.id)
+  const url = profileUrl(row.slug)
 
   async function copy() {
     try {
@@ -291,14 +385,16 @@ function RowActions({ row, busy, onToggleBlock }) {
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      <Link to={`/admin/keychain/${row.id}`} className="btn-primary !py-2 !text-xs">
-        {row.assigned ? 'Edit' : 'Assign'}
-      </Link>
+      {row.assigned && (
+        <button type="button" className="btn-primary !py-2 !text-xs" onClick={() => onEdit(row)}>
+          Edit
+        </button>
+      )}
       <a href={url} target="_blank" rel="noopener noreferrer" className="btn-secondary !py-2 !text-xs">
-        View
+        Open
       </a>
       <button type="button" className="btn-secondary !py-2 !text-xs" onClick={copy}>
-        {copied ? 'Copied' : 'Copy URL'}
+        {copied ? 'Copied' : 'Copy link'}
       </button>
       <button
         type="button"
@@ -308,41 +404,18 @@ function RowActions({ row, busy, onToggleBlock }) {
       >
         {row.status === 'BLOCKED' ? 'Unblock' : 'Block'}
       </button>
+      {row.assigned && (
+        <button
+          type="button"
+          className="btn-danger !py-2 !text-xs"
+          onClick={() => onRelease(row)}
+          disabled={busy}
+          title="Erase the card and issue a new code"
+        >
+          Reset
+        </button>
+      )}
     </div>
-  )
-}
-
-function SeedButton({ onDone }) {
-  const [busy, setBusy] = useState(false)
-
-  async function run() {
-    const answer = window.prompt(
-      'Create keychain rows up to which ID?\n\nExisting rows are never touched — this only fills in missing IDs.',
-      '500'
-    )
-    if (!answer) return
-    const count = parseInt(answer, 10)
-    if (!Number.isFinite(count) || count < 1) {
-      window.alert('Enter a whole number, for example 500.')
-      return
-    }
-
-    setBusy(true)
-    try {
-      const result = await seedKeychains(count)
-      window.alert(`Added ${result.created} keychain rows. The sheet now holds ${result.total}.`)
-      onDone()
-    } catch (err) {
-      window.alert(err.message || 'Could not create the rows.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <button type="button" className="btn-secondary" onClick={run} disabled={busy}>
-      {busy ? 'Working…' : 'Generate keychain IDs'}
-    </button>
   )
 }
 
@@ -354,8 +427,8 @@ function EmptyState({ hasFilters }) {
       </p>
       <p className="mt-1 text-sm text-slate-500">
         {hasFilters
-          ? 'Try a different ID, name or hospital.'
-          : 'Use “Generate keychain IDs” to create the rows for your printed batch.'}
+          ? 'Try a different number, code, name or hospital.'
+          : 'Use “Generate keychains” to create the rows for your printed batch.'}
       </p>
     </div>
   )

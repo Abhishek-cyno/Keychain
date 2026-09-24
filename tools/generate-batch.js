@@ -5,20 +5,24 @@
  *
  *   out/qr/eqova-001.png      one QR per keychain, print-ready
  *   out/qr/eqova-001.svg      vector version for the printer
- *   out/keychains.csv         ID + URL — feed to NFC bulk writers and the sheet
+ *   out/keychains.csv         number + code + URL, for NFC writers and records
  *   out/nfc-urls.txt          one URL per line, for writers that want plain text
- *   out/contact-sheet.html    printable sheet of every QR with its ID label
+ *   out/contact-sheet.html    printable sheet of every QR with its number
+ *
+ * Codes are NOT generated here. Each keychain's code is created by the backend
+ * when its row is seeded, and this tool reads them back — inventing them
+ * locally would produce QR codes that resolve to nothing.
  *
  * Usage:
- *   node generate-batch.js --from 1 --to 500
- *   node generate-batch.js --from 501 --to 1000 --origin https://eqova.in
+ *   node generate-batch.js --api https://script.google.com/macros/s/AAA.../exec
+ *   node generate-batch.js --api <url> --from 1 --to 500
+ *   node generate-batch.js --csv exported-sheet.csv        # offline fallback
  *
- * Every QR encodes exactly the URL that goes on the NFC chip, and nothing else.
- * The doctor's details live behind that URL, so a keychain never needs
- * reprinting or re-encoding when the doctor's details change.
+ * The --csv form takes a sheet exported as CSV and needs an ID column and a
+ * Slug column; everything else in the file is ignored.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile, readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
@@ -26,7 +30,7 @@ import QRCode from 'qrcode'
 const HERE = dirname(fileURLToPath(import.meta.url))
 
 function parseArgs(argv) {
-  const args = { from: 1, to: 500, origin: 'https://eqova.in', pad: 3 }
+  const args = { from: 1, to: 0, origin: 'https://eqova.in', pad: 3, api: '', csv: '' }
 
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i]
@@ -34,12 +38,15 @@ function parseArgs(argv) {
     if (!flag?.startsWith('--')) continue
     const key = flag.slice(2)
     if (key === 'origin') args.origin = String(value).replace(/\/$/, '')
+    else if (key === 'api' || key === 'csv') args[key] = String(value || '')
     else if (key in args) args[key] = parseInt(value, 10)
   }
 
+  if (!args.api && !args.csv) {
+    throw new Error('Pass --api <exec-url> to read the codes, or --csv <file> for the offline path')
+  }
   if (!Number.isFinite(args.from) || args.from < 1) throw new Error('--from must be 1 or more')
-  if (!Number.isFinite(args.to) || args.to < args.from) throw new Error('--to must be >= --from')
-  if (args.to - args.from > 20000) throw new Error('Refusing to generate more than 20000 at once')
+  if (args.to && args.to < args.from) throw new Error('--to must be >= --from')
 
   return args
 }
@@ -51,41 +58,111 @@ const QR_OPTIONS = {
   color: { dark: '#0f172a', light: '#ffffff' },
 }
 
+/** Read every keychain from the live API. `list` needs no password. */
+async function loadFromApi(api) {
+  const url = new URL(api)
+  url.searchParams.set('action', 'list')
+  url.searchParams.set('limit', '500')
+
+  const all = []
+  let offset = 0
+
+  // The API caps a page at 500, so walk until a page comes back short.
+  for (;;) {
+    url.searchParams.set('offset', String(offset))
+    url.searchParams.set('_', String(Date.now()))
+
+    const res = await fetch(url, { redirect: 'follow' })
+    const text = await res.text()
+
+    let payload
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      throw new Error(`API did not return JSON. Is --api the /exec URL?\n${text.slice(0, 200)}`)
+    }
+    if (!payload.ok) throw new Error(payload.error || 'API request failed')
+
+    all.push(...payload.data.items)
+    offset += payload.data.items.length
+
+    if (payload.data.items.length === 0 || all.length >= payload.data.total) break
+  }
+
+  return all.map((row) => ({ id: Number(row.id), slug: String(row.slug || '') }))
+}
+
+/** Offline path: a sheet exported as CSV, with ID and Slug columns. */
+async function loadFromCsv(path) {
+  const text = await readFile(path, 'utf8')
+  const lines = text.split(/\r?\n/).filter(Boolean)
+  if (!lines.length) throw new Error('The CSV is empty')
+
+  const header = lines[0].split(',').map((h) => h.trim().toLowerCase())
+  const idAt = header.indexOf('id')
+  const slugAt = header.indexOf('slug')
+  if (idAt === -1 || slugAt === -1) {
+    throw new Error(`The CSV needs an ID column and a Slug column. Found: ${header.join(', ')}`)
+  }
+
+  return lines.slice(1).map((line) => {
+    const cells = line.split(',')
+    return { id: Number(cells[idAt]), slug: String(cells[slugAt] || '').trim() }
+  })
+}
+
 async function main() {
-  const { from, to, origin, pad } = parseArgs(process.argv.slice(2))
+  const { from, to, origin, pad, api, csv } = parseArgs(process.argv.slice(2))
+
+  process.stdout.write(`Reading keychains from ${api ? 'the API' : csv}\n`)
+  const all = api ? await loadFromApi(api) : await loadFromCsv(csv)
+
+  const selected = all
+    .filter((r) => r.id >= from && (!to || r.id <= to))
+    .sort((a, b) => a.id - b.id)
+
+  const missing = selected.filter((r) => !r.slug)
+  if (missing.length) {
+    throw new Error(
+      `${missing.length} keychain(s) have no code, starting at #${missing[0].id}. ` +
+        'Run setup() in the Apps Script editor to backfill them, then try again.'
+    )
+  }
+  if (!selected.length) {
+    throw new Error(`No keychains in range ${from}–${to || '∞'}`)
+  }
 
   const outDir = join(HERE, 'out')
   const qrDir = join(outDir, 'qr')
   await mkdir(qrDir, { recursive: true })
 
-  const ids = []
-  for (let id = from; id <= to; id++) ids.push(id)
-
   const rows = []
   const svgs = []
 
-  process.stdout.write(`Generating ${ids.length} keychains (${from}–${to}) for ${origin}\n`)
+  process.stdout.write(`Generating ${selected.length} keychains for ${origin}\n`)
 
-  for (const id of ids) {
+  for (const { id, slug } of selected) {
     const label = String(id).padStart(pad, '0')
-    const url = `${origin}/d/${id}`
+    const url = `${origin}/d/${slug}`
 
     await QRCode.toFile(join(qrDir, `eqova-${label}.png`), url, QR_OPTIONS)
-
     const svg = await QRCode.toString(url, { ...QR_OPTIONS, type: 'svg' })
     await writeFile(join(qrDir, `eqova-${label}.svg`), svg, 'utf8')
 
-    rows.push({ id, label, url })
+    rows.push({ id, label, slug, url })
     svgs.push({ label, svg })
 
-    if (id % 50 === 0 || id === to) process.stdout.write(`  …${id}\n`)
+    if (rows.length % 50 === 0 || id === selected[selected.length - 1].id) {
+      process.stdout.write(`  …${rows.length}\n`)
+    }
   }
 
-  const csv = ['ID,Label,URL,Status', ...rows.map((r) => `${r.id},${r.label},${r.url},AVAILABLE`)].join('\n')
-  await writeFile(join(outDir, 'keychains.csv'), `${csv}\n`, 'utf8')
-
+  const csvOut = [
+    'ID,Label,Code,URL',
+    ...rows.map((r) => `${r.id},${r.label},${r.slug},${r.url}`),
+  ].join('\n')
+  await writeFile(join(outDir, 'keychains.csv'), `${csvOut}\n`, 'utf8')
   await writeFile(join(outDir, 'nfc-urls.txt'), `${rows.map((r) => r.url).join('\n')}\n`, 'utf8')
-
   await writeFile(join(outDir, 'contact-sheet.html'), contactSheet(rows, svgs, origin), 'utf8')
 
   process.stdout.write(
@@ -93,9 +170,12 @@ async function main() {
       '',
       'Done.',
       `  QR images       tools/out/qr/ (${rows.length * 2} files)`,
-      '  Sheet import    tools/out/keychains.csv',
+      '  Pairing record  tools/out/keychains.csv',
       '  NFC bulk write  tools/out/nfc-urls.txt',
       '  Print/QA sheet  tools/out/contact-sheet.html',
+      '',
+      'Each QR is labelled with the keychain number but encodes that keychain\'s',
+      'own code. Check a sample against keychains.csv before the batch is printed.',
       '',
     ].join('\n')
   )
@@ -133,7 +213,7 @@ function contactSheet(rows, svgs, origin) {
 <body>
   <header>
     <h1>Eqova keychains ${rows[0].label}–${rows[rows.length - 1].label}</h1>
-    <p>${rows.length} codes · each points at ${origin}/d/&lt;id&gt; · write the same URL to each NFC chip</p>
+    <p>${rows.length} codes · each encodes ${origin}/d/&lt;its own code&gt; · write the same URL to that keychain's NFC chip</p>
   </header>
   <div class="grid">
 ${cells}

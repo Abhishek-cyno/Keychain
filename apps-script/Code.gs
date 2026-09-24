@@ -1,19 +1,27 @@
 /**
  * Eqova keychain API — Google Apps Script web app in front of a Google Sheet.
  *
- * This is the only thing that ever touches the sheet. The React app talks to
- * this; the sheet is never exposed to the browser. Replacing this with a Node +
- * Postgres service later means keeping the same request/response shapes — the
- * public URL structure (eqova.in/d/:id) is unaffected either way.
+ * Self-service model:
+ *   Every keychain carries an unguessable slug, e.g. eqova.in/d/k7mq2xdv9p.
+ *   Tapping an unclaimed keychain opens a form; whoever holds the physical
+ *   object fills in their own details and claims it. Tapping a claimed one
+ *   shows that person's card. Staff never assign anything.
+ *
+ * The slug is the credential. The sequential ID still exists for the ops team
+ * (it is what is physically printed on the keychain and what the admin list
+ * sorts by), but it is NOT a way in: there is deliberately no numeric lookup
+ * on the public endpoint, or the random slug would be pointless.
  *
  * Setup (once):
  *   1. Extensions → Apps Script from the spreadsheet that holds the data.
  *   2. Paste this file in as Code.gs.
- *   3. Run setup() once from the editor to create the sheet and its header.
- *   4. Deploy → New deployment → Web app
+ *   3. Project Settings → Script Properties, add:
+ *        ADMIN_PASSWORD   required — gates every admin write
+ *   4. Run setup() once from the editor. Safe to re-run: it adds the Slug
+ *      column if missing and backfills slugs for rows that lack one.
+ *   5. Deploy → New deployment → Web app
  *        Execute as: Me
  *        Who has access: Anyone
- *      Copy the /exec URL into web/.env as VITE_API_BASE.
  *
  * Re-deploy (Manage deployments → edit → new version) after every code change,
  * otherwise the old version keeps serving.
@@ -21,6 +29,8 @@
 
 var SHEET_NAME = 'Keychains'
 
+// Slug is appended last on purpose: existing sheets already hold data in the
+// earlier columns, and inserting mid-table would shift every value sideways.
 var COLUMNS = [
   'ID',
   'Name',
@@ -37,9 +47,29 @@ var COLUMNS = [
   'Notes',
   'CreatedAt',
   'UpdatedAt',
+  'Slug',
 ]
 
 var STATUSES = ['AVAILABLE', 'ASSIGNED', 'ACTIVE', 'BLOCKED']
+
+// No 0/o, 1/l/i — these get read off a screen and typed by hand during support.
+var SLUG_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
+var SLUG_LENGTH = 10
+
+// Caps on what a self-service claim may write. Without these, anyone holding a
+// slug could stuff megabytes into the sheet.
+var FIELD_LIMITS = {
+  name: 120,
+  specialization: 120,
+  hospital: 160,
+  designation: 120,
+  phone: 40,
+  email: 160,
+  bio: 2000,
+  linkedin: 300,
+  website: 300,
+  notes: 1000,
+}
 
 /* ============================== HTTP ENTRY ================================ */
 
@@ -47,14 +77,26 @@ function doGet(e) {
   try {
     var params = (e && e.parameter) || {}
     switch (params.action) {
+      // Public — the only lookup a keychain can perform.
       case 'profile':
-        return json(true, getPublicProfile(params.id))
+        return json(true, getPublicProfile(params.slug))
+
+      // Admin read. Deliberately free of contact details, so opening the
+      // dashboard never exposes anyone's phone number or email.
       case 'stats':
         return json(true, getStats())
       case 'list':
         return json(true, listKeychains(params))
+
+      // Admin read of one full record, contact details included. Gated.
       case 'keychain':
+        requirePassword(params.password)
         return json(true, getAdminRecord(params.id))
+
+      case 'verifyPassword':
+        requirePassword(params.password)
+        return json(true, { ok: true })
+
       default:
         return json(false, null, 'Unknown action', 'UNKNOWN_ACTION')
     }
@@ -70,13 +112,22 @@ function doPost(e) {
       body = JSON.parse(e.postData.contents)
     }
 
+    // The public self-service claim. Not password-gated: possession of the
+    // slug, i.e. of the physical keychain, is what authorises it.
+    if (body.action === 'claim') {
+      return json(true, claimKeychain(body.slug, body.doctor))
+    }
+
+    // Everything else is staff-only.
+    requirePassword(body.password)
+
     switch (body.action) {
-      case 'assign':
-        return json(true, assignKeychain(body.id, body.doctor, body.expectedStatus))
       case 'update':
         return json(true, updateKeychain(body.id, body.doctor))
       case 'setStatus':
         return json(true, setKeychainStatus(body.id, body.status))
+      case 'release':
+        return json(true, releaseKeychain(body.id))
       case 'seed':
         return json(true, seedKeychains(body.count))
       default:
@@ -87,31 +138,38 @@ function doPost(e) {
   }
 }
 
-/* ================================ ACTIONS ================================= */
+/* ============================ PUBLIC / CLAIM ============================== */
 
-/** Public profile. Returns only fields meant to be shown on the web page. */
-function getPublicProfile(rawId) {
-  var id = parseId(rawId)
-  var cacheKey = 'profile_' + id
+/**
+ * What a tapped keychain resolves to.
+ *
+ * Three outcomes: a card to read, a form to fill in, or a closed door.
+ */
+function getPublicProfile(rawSlug) {
+  var slug = parseSlug(rawSlug)
   var cache = CacheService.getScriptCache()
+  var cacheKey = 'profile_' + slug
   var cached = cache.get(cacheKey)
   if (cached) return JSON.parse(cached)
 
-  var row = findRow(id)
-  if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
+  var row = findRowBySlug(slug)
+  if (!row) throw apiError('No keychain with that code', 'NOT_FOUND')
 
   var record = rowToObject(row.values)
-  var status = record.Status || 'AVAILABLE'
-  var assigned = status === 'ACTIVE' || status === 'ASSIGNED'
+  var status = String(record.Status || 'AVAILABLE').toUpperCase()
+  var claimed = Boolean(record.Name) && status !== 'AVAILABLE'
 
   var profile = {
-    id: id,
+    slug: slug,
+    // Shown on the claim screen so someone can check it against the number
+    // printed on the keychain in their hand. It is not a lookup key.
+    number: parseInt(record.ID, 10) || null,
     status: status,
-    assigned: assigned && Boolean(record.Name),
+    assigned: claimed && status !== 'BLOCKED',
+    claimable: status === 'AVAILABLE' && !record.Name,
   }
 
-  // Nothing about an unassigned or blocked keychain is public.
-  if (profile.assigned && status !== 'BLOCKED') {
+  if (profile.assigned) {
     profile.name = record.Name
     profile.specialization = record.Specialization
     profile.hospital = record.Hospital
@@ -124,18 +182,65 @@ function getPublicProfile(rawId) {
     profile.links = parseLinks(record.Links)
   }
 
-  cache.put(cacheKey, JSON.stringify(profile), 60)
+  // An unclaimed keychain is cached only briefly: the moment someone claims it
+  // the next tap must show the card, not the form again.
+  cache.put(cacheKey, JSON.stringify(profile), profile.claimable ? 5 : 60)
   return profile
 }
 
-/** Full record for the admin UI, internal fields included. */
-function getAdminRecord(rawId) {
-  var id = parseId(rawId)
-  var row = findRow(id)
-  if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
-  return toAdminObject(rowToObject(row.values))
+/**
+ * Self-service claim.
+ *
+ * The lock plus the re-read is what stops two people who somehow both have the
+ * link from claiming the same keychain: the second one is told it is taken
+ * rather than overwriting the first.
+ */
+function claimKeychain(rawSlug, doctor) {
+  var slug = parseSlug(rawSlug)
+  var input = doctor || {}
+
+  if (!trim(input.name)) throw apiError('Please enter your name.', 'NAME_REQUIRED')
+
+  var lock = LockService.getScriptLock()
+  if (!lock.tryLock(20000)) throw apiError('The system is busy. Please try again.', 'BUSY')
+
+  try {
+    var row = findRowBySlug(slug)
+    if (!row) throw apiError('No keychain with that code', 'NOT_FOUND')
+
+    var current = rowToObject(row.values)
+    var status = String(current.Status || 'AVAILABLE').toUpperCase()
+
+    if (status === 'BLOCKED') {
+      throw apiError('This keychain is not available.', 'BLOCKED')
+    }
+    if (current.Name || status !== 'AVAILABLE') {
+      throw apiError(
+        'This keychain has already been set up. Ask the Eqova team if you need it changed.',
+        'ALREADY_CLAIMED'
+      )
+    }
+
+    writeDoctor(row, current, input, 'ACTIVE')
+    invalidateSlug(slug)
+
+    // Give back the public shape, so the app can show the finished card
+    // immediately without a second round trip.
+    return getPublicProfile(slug)
+  } finally {
+    lock.releaseLock()
+  }
 }
 
+/* ================================= ADMIN ================================== */
+
+/**
+ * Rows for the dashboard.
+ *
+ * No phone, email, bio or notes: the dashboard is not password-gated, so it
+ * must not be a directory of everyone's contact details. Those live behind
+ * getAdminRecord, which is gated.
+ */
 function listKeychains(params) {
   var query = String(params.q || '').trim().toLowerCase()
   var status = String(params.status || '').trim().toUpperCase()
@@ -151,19 +256,33 @@ function listKeychains(params) {
     if (status && String(record.Status || 'AVAILABLE').toUpperCase() !== status) continue
 
     if (query) {
-      var haystack = [record.ID, record.Name, record.Hospital, record.Specialization, record.Designation]
+      var haystack = [record.ID, record.Slug, record.Name, record.Hospital, record.Specialization]
         .join(' ')
         .toLowerCase()
       if (haystack.indexOf(query) === -1) continue
     }
 
-    matched.push(toAdminObject(record))
+    matched.push({
+      id: parseInt(record.ID, 10),
+      slug: String(record.Slug || ''),
+      status: String(record.Status || 'AVAILABLE').toUpperCase(),
+      assigned: Boolean(record.Name),
+      name: String(record.Name || ''),
+      specialization: String(record.Specialization || ''),
+      hospital: String(record.Hospital || ''),
+      updatedAt: asIso(record.UpdatedAt),
+    })
   }
 
-  return {
-    total: matched.length,
-    items: matched.slice(offset, offset + limit),
-  }
+  return { total: matched.length, items: matched.slice(offset, offset + limit) }
+}
+
+/** Full record including contact details. Password required. */
+function getAdminRecord(rawId) {
+  var id = parseId(rawId)
+  var row = findRowById(id)
+  if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
+  return toAdminObject(rowToObject(row.values))
 }
 
 function getStats() {
@@ -182,58 +301,26 @@ function getStats() {
   return stats
 }
 
-/**
- * Claim an available keychain.
- *
- * The lock plus the expectedStatus re-check is what stops two staff members at
- * two laptops from handing the same keychain to two different doctors: whoever
- * gets the lock second sees the status is no longer AVAILABLE and is refused.
- */
-function assignKeychain(rawId, doctor, expectedStatus) {
-  var id = parseId(rawId)
-  var lock = LockService.getScriptLock()
-  if (!lock.tryLock(20000)) throw apiError('The system is busy. Try again.', 'BUSY')
-
-  try {
-    var row = findRow(id)
-    if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
-
-    var current = rowToObject(row.values)
-    var currentStatus = String(current.Status || 'AVAILABLE').toUpperCase()
-    var wanted = String(expectedStatus || 'AVAILABLE').toUpperCase()
-
-    if (currentStatus !== wanted) {
-      throw apiError(
-        'Keychain ' + id + ' is ' + currentStatus + ', not ' + wanted + '.',
-        'CONFLICT'
-      )
-    }
-    if (current.Name) {
-      throw apiError('Keychain ' + id + ' already belongs to ' + current.Name + '.', 'CONFLICT')
-    }
-
-    return writeDoctor(row, id, doctor, 'ACTIVE', current)
-  } finally {
-    lock.releaseLock()
-  }
-}
-
+/** Staff correction of a card someone already claimed. */
 function updateKeychain(rawId, doctor) {
   var id = parseId(rawId)
   var lock = LockService.getScriptLock()
   if (!lock.tryLock(20000)) throw apiError('The system is busy. Try again.', 'BUSY')
 
   try {
-    var row = findRow(id)
+    var row = findRowById(id)
     if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
 
     var current = rowToObject(row.values)
-    var currentStatus = String(current.Status || 'AVAILABLE').toUpperCase()
+    var status = String(current.Status || 'AVAILABLE').toUpperCase()
 
     // Editing never silently un-blocks a keychain.
-    var nextStatus = currentStatus === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE'
+    var next = status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE'
 
-    return writeDoctor(row, id, doctor, nextStatus, current)
+    writeDoctor(row, current, doctor || {}, next)
+    invalidateSlug(current.Slug)
+
+    return toAdminObject(rowToObject(findRowById(id).values))
   } finally {
     lock.releaseLock()
   }
@@ -248,14 +335,14 @@ function setKeychainStatus(rawId, rawStatus) {
   if (!lock.tryLock(20000)) throw apiError('The system is busy. Try again.', 'BUSY')
 
   try {
-    var row = findRow(id)
+    var row = findRowById(id)
     if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
 
     var sheet = getSheet()
     sheet.getRange(row.index, columnIndex('Status')).setValue(status)
     sheet.getRange(row.index, columnIndex('UpdatedAt')).setValue(nowIso())
 
-    invalidate(id)
+    invalidateSlug(rowToObject(row.values).Slug)
     return { id: id, status: status }
   } finally {
     lock.releaseLock()
@@ -263,7 +350,45 @@ function setKeychainStatus(rawId, rawStatus) {
 }
 
 /**
- * Create rows for keychain IDs 1..count that do not exist yet.
+ * Wipe a keychain back to claimable.
+ *
+ * The escape hatch for a claim made in error — someone else's keychain, or a
+ * test entry. It issues a NEW slug, so the old printed code stops working and
+ * whoever claimed it cannot simply re-open the link.
+ */
+function releaseKeychain(rawId) {
+  var id = parseId(rawId)
+  var lock = LockService.getScriptLock()
+  if (!lock.tryLock(20000)) throw apiError('The system is busy. Try again.', 'BUSY')
+
+  try {
+    var row = findRowById(id)
+    if (!row) throw apiError('No keychain with that ID', 'NOT_FOUND')
+
+    var current = rowToObject(row.values)
+    var oldSlug = current.Slug
+
+    var sheet = getSheet()
+    var values = row.values.slice()
+    var clear = ['Name', 'Specialization', 'Hospital', 'Designation', 'Phone', 'Email',
+                 'Bio', 'LinkedIn', 'Website', 'Links', 'Notes']
+    for (var i = 0; i < clear.length; i++) {
+      values[columnIndex(clear[i]) - 1] = ''
+    }
+    values[columnIndex('Status') - 1] = 'AVAILABLE'
+    values[columnIndex('UpdatedAt') - 1] = nowIso()
+
+    sheet.getRange(row.index, 1, 1, COLUMNS.length).setValues([values])
+
+    invalidateSlug(oldSlug)
+    return { id: id, status: 'AVAILABLE', slug: values[columnIndex('Slug') - 1] }
+  } finally {
+    lock.releaseLock()
+  }
+}
+
+/**
+ * Create rows for IDs 1..count that do not exist yet, each with a fresh slug.
  * Existing rows are never modified, so this is safe to re-run when a new batch
  * of keychains is manufactured.
  */
@@ -278,10 +403,13 @@ function seedKeychains(rawCount) {
     var sheet = getSheet()
     var rows = readAll()
     var existing = {}
+    var usedSlugs = {}
 
     for (var i = 0; i < rows.length; i++) {
       var id = parseInt(rows[i][0], 10)
       if (id) existing[id] = true
+      var slug = rows[i][columnIndex('Slug') - 1]
+      if (slug) usedSlugs[String(slug)] = true
     }
 
     var pending = []
@@ -294,13 +422,12 @@ function seedKeychains(rawCount) {
       blank[columnIndex('Status') - 1] = 'AVAILABLE'
       blank[columnIndex('CreatedAt') - 1] = timestamp
       blank[columnIndex('UpdatedAt') - 1] = timestamp
+      blank[columnIndex('Slug') - 1] = uniqueSlug(usedSlugs)
       pending.push(blank)
     }
 
     if (pending.length) {
-      sheet
-        .getRange(sheet.getLastRow() + 1, 1, pending.length, COLUMNS.length)
-        .setValues(pending)
+      sheet.getRange(sheet.getLastRow() + 1, 1, pending.length, COLUMNS.length).setValues(pending)
     }
 
     return { created: pending.length, total: Object.keys(existing).length + pending.length }
@@ -311,9 +438,8 @@ function seedKeychains(rawCount) {
 
 /* ================================ HELPERS ================================= */
 
-function writeDoctor(row, id, doctor, status, current) {
+function writeDoctor(row, current, input, status) {
   var sheet = getSheet()
-  var input = doctor || {}
   var timestamp = nowIso()
   var values = row.values.slice()
 
@@ -321,26 +447,43 @@ function writeDoctor(row, id, doctor, status, current) {
     values[columnIndex(column) - 1] = value === undefined || value === null ? '' : value
   }
 
-  put('ID', id)
-  put('Name', trim(input.name))
-  put('Specialization', trim(input.specialization))
-  put('Hospital', trim(input.hospital))
-  put('Designation', trim(input.designation))
-  put('Phone', trim(input.phone))
-  put('Email', trim(input.email))
-  put('Bio', trim(input.bio))
-  put('LinkedIn', trim(input.linkedin))
-  put('Website', trim(input.website))
-  put('Links', input.links && input.links.length ? JSON.stringify(input.links) : '')
+  put('Name', capped(input.name, 'name'))
+  put('Specialization', capped(input.specialization, 'specialization'))
+  put('Hospital', capped(input.hospital, 'hospital'))
+  put('Designation', capped(input.designation, 'designation'))
+  put('Phone', capped(input.phone, 'phone'))
+  put('Email', capped(input.email, 'email'))
+  put('Bio', capped(input.bio, 'bio'))
+  put('LinkedIn', capped(input.linkedin, 'linkedin'))
+  put('Website', capped(input.website, 'website'))
+  put('Links', packLinks(input.links))
   put('Status', status)
-  put('Notes', trim(input.notes))
   put('CreatedAt', current.CreatedAt || timestamp)
   put('UpdatedAt', timestamp)
 
-  sheet.getRange(row.index, 1, 1, COLUMNS.length).setValues([values])
-  invalidate(id)
+  // Notes are staff-only and must never be writable by a public claim.
+  if (Object.prototype.hasOwnProperty.call(input, 'notes')) {
+    put('Notes', capped(input.notes, 'notes'))
+  }
 
-  return toAdminObject(rowToObject(values))
+  sheet.getRange(row.index, 1, 1, COLUMNS.length).setValues([values])
+}
+
+function packLinks(links) {
+  if (!links || !links.length) return ''
+  var clean = []
+  for (var i = 0; i < links.length && i < 8; i++) {
+    var entry = links[i] || {}
+    var url = trim(entry.url)
+    if (!url) continue
+    clean.push({ label: trim(entry.label).substring(0, 40), url: url.substring(0, 300) })
+  }
+  return clean.length ? JSON.stringify(clean) : ''
+}
+
+function capped(value, field) {
+  var limit = FIELD_LIMITS[field] || 200
+  return trim(value).substring(0, limit)
 }
 
 function getSheet() {
@@ -350,7 +493,6 @@ function getSheet() {
   return sheet
 }
 
-/** All data rows, header excluded. */
 function readAll() {
   var sheet = getSheet()
   var lastRow = sheet.getLastRow()
@@ -359,11 +501,11 @@ function readAll() {
 }
 
 /**
- * Locate a keychain's row. Seeded sheets are dense and sorted, so the row for
- * id N is almost always N + 1 — check there first, and only fall back to a scan
- * when someone has sorted or deleted rows by hand.
+ * Seeded sheets are dense and sorted, so the row for id N is almost always
+ * N + 1 — check there first, and only fall back to a scan when someone has
+ * sorted or deleted rows by hand.
  */
-function findRow(id) {
+function findRowById(id) {
   var sheet = getSheet()
   var lastRow = sheet.getLastRow()
   if (lastRow < 2) return null
@@ -382,6 +524,40 @@ function findRow(id) {
   return null
 }
 
+function findRowBySlug(slug) {
+  var all = readAll()
+  var column = columnIndex('Slug') - 1
+  for (var i = 0; i < all.length; i++) {
+    if (String(all[i][column]) === slug) return { index: i + 2, values: all[i] }
+  }
+  return null
+}
+
+/**
+ * Utilities.getUuid() is a type-4 UUID from a proper random source. Math.random()
+ * is not: its future output is derivable from past values, which would let
+ * someone holding a few keychains predict the codes on others.
+ */
+function makeSlug() {
+  var hex = Utilities.getUuid().replace(/-/g, '')
+  var out = ''
+  for (var i = 0; i < SLUG_LENGTH; i++) {
+    out += SLUG_ALPHABET.charAt(parseInt(hex.substr(i * 2, 2), 16) % SLUG_ALPHABET.length)
+  }
+  return out
+}
+
+function uniqueSlug(used) {
+  for (var attempt = 0; attempt < 50; attempt++) {
+    var slug = makeSlug()
+    if (!used[slug]) {
+      used[slug] = true
+      return slug
+    }
+  }
+  throw apiError('Could not generate a unique code', 'SLUG_EXHAUSTED')
+}
+
 function rowToObject(values) {
   var record = {}
   for (var i = 0; i < COLUMNS.length; i++) {
@@ -390,12 +566,11 @@ function rowToObject(values) {
   return record
 }
 
-/** Sheet record → the camelCase shape the admin UI works with. */
 function toAdminObject(record) {
-  var status = String(record.Status || 'AVAILABLE').toUpperCase()
   return {
     id: parseInt(record.ID, 10),
-    status: status,
+    slug: String(record.Slug || ''),
+    status: String(record.Status || 'AVAILABLE').toUpperCase(),
     assigned: Boolean(record.Name),
     name: String(record.Name || ''),
     specialization: String(record.Specialization || ''),
@@ -433,6 +608,12 @@ function parseId(value) {
   return id
 }
 
+function parseSlug(value) {
+  var slug = String(value || '').trim().toLowerCase()
+  if (!slug || !/^[a-z0-9]{4,32}$/.test(slug)) throw apiError('Invalid keychain code', 'NOT_FOUND')
+  return slug
+}
+
 function trim(value) {
   return value === undefined || value === null ? '' : String(value).trim()
 }
@@ -447,8 +628,18 @@ function asIso(value) {
   return String(value)
 }
 
-function invalidate(id) {
-  CacheService.getScriptCache().remove('profile_' + id)
+function invalidateSlug(slug) {
+  if (slug) CacheService.getScriptCache().remove('profile_' + String(slug))
+}
+
+function requirePassword(supplied) {
+  var expected = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD')
+  if (!expected) {
+    throw apiError('ADMIN_PASSWORD is not set in Script Properties', 'NOT_CONFIGURED')
+  }
+  if (!supplied || String(supplied) !== expected) {
+    throw apiError('Incorrect password', 'UNAUTHORISED')
+  }
 }
 
 function apiError(message, code) {
@@ -471,22 +662,49 @@ function json(ok, data, error, code) {
 /* ========================= ONE-TIME EDITOR SETUP ========================== */
 
 /**
- * Run this once from the Apps Script editor. It creates the sheet with the
- * right header row and seeds the first 500 keychain IDs.
+ * Run once from the Apps Script editor. Safe to re-run — it is also the
+ * migration for a sheet created before slugs existed.
  */
 function setup() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet()
   var sheet = spreadsheet.getSheetByName(SHEET_NAME)
 
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(SHEET_NAME)
-  }
+  if (!sheet) sheet = spreadsheet.insertSheet(SHEET_NAME)
 
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold')
-    sheet.setFrozenRows(1)
-  }
+  // Rewrite the header so a sheet missing the Slug column gains it.
+  sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold')
+  sheet.setFrozenRows(1)
 
+  var added = backfillSlugs()
   seedKeychains(500)
-  Logger.log('Sheet ready with ' + (sheet.getLastRow() - 1) + ' keychain rows.')
+
+  Logger.log(
+    'Sheet ready. ' + (sheet.getLastRow() - 1) + ' rows, ' + added + ' slugs backfilled.'
+  )
+}
+
+/** Give a slug to every row that lacks one. Existing slugs are never changed. */
+function backfillSlugs() {
+  var sheet = getSheet()
+  var lastRow = sheet.getLastRow()
+  if (lastRow < 2) return 0
+
+  var column = columnIndex('Slug')
+  var range = sheet.getRange(2, column, lastRow - 1, 1)
+  var values = range.getValues()
+  var used = {}
+  var added = 0
+
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0]) used[String(values[i][0])] = true
+  }
+  for (var j = 0; j < values.length; j++) {
+    if (!values[j][0]) {
+      values[j][0] = uniqueSlug(used)
+      added++
+    }
+  }
+
+  if (added) range.setValues(values)
+  return added
 }

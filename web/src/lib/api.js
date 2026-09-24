@@ -3,17 +3,18 @@
  *
  * Everything the app knows about storage lives behind this module. Today it
  * talks to a Google Apps Script web app in front of a Google Sheet; swapping in
- * a Node/Express + Postgres API later means changing only VITE_API_BASE and, if
- * the shapes drift, the two mappers at the bottom of this file. The public URL
- * structure (/d/:id) never changes.
+ * a Node/Express + Postgres API later means changing only VITE_API_BASE.
+ *
+ * Keychains are addressed by an unguessable slug, never by their sequential
+ * number. The number exists for the ops team and is printed on the physical
+ * object; it is deliberately not a way to reach a profile.
  */
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 /**
  * With no real API configured the app falls back to an in-browser mock, so a
- * fresh clone runs and the event workflow can be rehearsed offline. Point
- * VITE_API_BASE at the Apps Script /exec URL and this switches off.
+ * fresh clone runs and the claim flow can be rehearsed offline.
  */
 export const USING_MOCK = !API_BASE || API_BASE === 'mock' || API_BASE.includes('XXXXXXXX')
 
@@ -21,8 +22,8 @@ export const PUBLIC_ORIGIN = (
   import.meta.env.VITE_PUBLIC_ORIGIN || window.location.origin
 ).replace(/\/$/, '')
 
-export function profileUrl(id) {
-  return `${PUBLIC_ORIGIN}/d/${id}`
+export function profileUrl(slug) {
+  return `${PUBLIC_ORIGIN}/d/${slug}`
 }
 
 export class ApiError extends Error {
@@ -59,8 +60,7 @@ async function get(params) {
   })
   // Apps Script's /exec redirect (302 → a one-time googleusercontent.com URL) has no
   // Cache-Control header, so the browser happily caches and replays it on the next
-  // identical GET — and that URL is single-use, so the replay 404s. Both the
-  // cache-busting param and `cache: 'no-store'` are needed to stop that.
+  // identical GET — and that URL is single-use, so the replay 404s.
   url.searchParams.set('_', Date.now())
   const res = await fetch(url.toString(), { method: 'GET', redirect: 'follow', cache: 'no-store' })
   return unwrap(res)
@@ -84,46 +84,81 @@ async function post(body) {
   return unwrap(res)
 }
 
-/* -------------------------------- public ---------------------------------- */
+/* ------------------------------ staff password ---------------------------- */
 
-/** Public profile for a keychain id. Returns only public-safe fields. */
-export function fetchProfile(id) {
-  return get({ action: 'profile', id })
+const PASSWORD_KEY = 'eqova.adminPassword'
+
+export function getPassword() {
+  try {
+    return sessionStorage.getItem(PASSWORD_KEY) || ''
+  } catch {
+    return ''
+  }
 }
 
-/* --------------------------------- admin ---------------------------------- */
+export function setPassword(value) {
+  try {
+    if (value) sessionStorage.setItem(PASSWORD_KEY, value)
+    else sessionStorage.removeItem(PASSWORD_KEY)
+  } catch {
+    /* private mode — the password simply will not persist across reloads */
+  }
+}
+
+export function clearPassword() {
+  setPassword('')
+}
+
+export function verifyPassword(password) {
+  return get({ action: 'verifyPassword', password })
+}
+
+/* --------------------------------- public --------------------------------- */
+
+/**
+ * Resolve a tapped keychain. The result is one of three things: a card to
+ * show, an invitation to claim, or a blocked/unknown notice.
+ */
+export function fetchProfile(slug) {
+  return get({ action: 'profile', slug })
+}
+
+/** Self-service claim. No password — holding the keychain is the authority. */
+export function claimKeychain(slug, doctor) {
+  return post({ action: 'claim', slug, doctor })
+}
+
+/* ------------------------------- staff only -------------------------------- */
 
 export function fetchStats() {
   return get({ action: 'stats' })
 }
 
+/** Dashboard rows. Contact details are deliberately not included. */
 export function fetchKeychains({ q = '', status = '', limit = 100, offset = 0 } = {}) {
   return get({ action: 'list', q, status, limit, offset })
 }
 
+/** Full record, contact details included. Password required. */
 export function fetchKeychain(id) {
-  return get({ action: 'keychain', id })
-}
-
-/**
- * Claim an AVAILABLE keychain for a doctor.
- * `expectedStatus` is sent so the server can reject the write if another staff
- * member claimed the same id in the meantime.
- */
-export function assignKeychain(id, doctor) {
-  return post({ action: 'assign', id, doctor, expectedStatus: 'AVAILABLE' })
+  return get({ action: 'keychain', id, password: getPassword() })
 }
 
 export function updateKeychain(id, doctor) {
-  return post({ action: 'update', id, doctor })
+  return post({ action: 'update', id, doctor, password: getPassword() })
 }
 
 export function setKeychainStatus(id, status) {
-  return post({ action: 'setStatus', id, status })
+  return post({ action: 'setStatus', id, status, password: getPassword() })
+}
+
+/** Clear a card and issue a new slug, retiring the printed code. */
+export function releaseKeychain(id) {
+  return post({ action: 'release', id, password: getPassword() })
 }
 
 export function seedKeychains(count) {
-  return post({ action: 'seed', count })
+  return post({ action: 'seed', count, password: getPassword() })
 }
 
 export const STATUSES = ['AVAILABLE', 'ASSIGNED', 'ACTIVE', 'BLOCKED']

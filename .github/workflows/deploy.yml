@@ -91,7 +91,7 @@ jobs:
     # approval instead of going straight to the live site.
     environment:
       name: production
-      url: https://eqova.in/d/1
+      url: https://eqova.in/admin
 
     steps:
       # Report what actually reached the job before anything tries to use it.
@@ -240,14 +240,18 @@ jobs:
             [ "$code" = "200" ] || fail=1
           }
 
-          # The profile route, the admin, and the WordPress site this deploy
-          # must never disturb.
-          check https://eqova.in/d/1
+          # A well-formed but deliberately fake code. Keychain codes are random
+          # and secret, so CI cannot hold a real one — and it does not need to.
+          # What matters here is that Apache hands /d/<code> to the app at all;
+          # the app answering "not recognised" still proves the rewrite works.
+          probe=https://eqova.in/d/zzzzzzzzzz
+
+          check "$probe"
           check https://eqova.in/admin
           check https://www.eqova.in/
 
           # The asset the page actually loads — catches a half-copied bundle.
-          asset=$(curl -s -L -m 30 https://eqova.in/d/1 | grep -o '/keychain-app/assets/[^"]*\.js' | head -1)
+          asset=$(curl -s -L -m 30 "$probe" | grep -o '/keychain-app/assets/[^"]*\.js' | head -1)
           if [ -z "$asset" ]; then
             echo "::error::Served HTML has no /keychain-app/ asset reference."
             exit 1

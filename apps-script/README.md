@@ -7,12 +7,19 @@ Sheet so the sheet is never exposed to a browser.
 
 1. Create a Google Sheet named **Eqova Keychains**.
 2. **Extensions → Apps Script**, delete the placeholder, paste in `Code.gs`.
-3. Run `setup()` once from the editor. It creates the `Keychains` sheet, writes
-   the header row and seeds IDs 1–500. Authorise the script when prompted.
-4. **Deploy → New deployment → Web app**
+3. **Project Settings → Script Properties**:
+
+   | Property | Required | Value |
+   | --- | --- | --- |
+   | `ADMIN_PASSWORD` | yes | a long random string; gates every staff action |
+
+4. Run `setup()` once from the editor. Authorise it when prompted. It is
+   idempotent — it adds the `Slug` column if missing, gives a code to every row
+   that lacks one, and seeds rows up to 500.
+5. **Deploy → New deployment → Web app**
    - Execute as: **Me**
    - Who has access: **Anyone**
-5. Copy the `/exec` URL into `web/.env` as `VITE_API_BASE`.
+6. Copy the `/exec` URL into `web/.env` as `VITE_API_BASE`.
 
 > After **every** edit to `Code.gs`: Deploy → Manage deployments → edit → New
 > version → Deploy. Saving alone does not update the live `/exec` URL. This is
@@ -20,15 +27,18 @@ Sheet so the sheet is never exposed to a browser.
 
 ## Sheet columns
 
-`ID · Name · Specialization · Hospital · Designation · Phone · Email ·
-Bio · LinkedIn · Website · Links · Status · Notes · CreatedAt · UpdatedAt`
+`ID · Name · Specialization · Hospital · Designation · Phone · Email · Bio ·
+LinkedIn · Website · Links · Status · Notes · CreatedAt · UpdatedAt · Slug`
 
-`ID` is the physical keychain number and must stay unique. `Links` holds JSON
-(`[{"label":"X","url":"…"}]`). `Notes` is internal and never leaves the API.
+`Slug` is last on purpose: inserting it next to `ID` would shift every existing
+value one column sideways on a sheet that already holds data.
 
-Rows may be sorted or edited by hand — lookups fall back to a scan when a row is
-not where it is expected. Do not renumber `ID`s: those numbers are printed on
-physical objects.
+`ID` is the number printed on the keychain. `Slug` is the code in its URL and
+the only way to reach it. `Links` holds JSON. `Notes` is staff-only and a public
+claim can never write it.
+
+Do not renumber `ID`s or rewrite `Slug`s by hand — both are printed on physical
+objects.
 
 ## Endpoints
 
@@ -38,44 +48,61 @@ All responses are `{ "ok": true, "data": … }` or
 ### Public
 
 ```
-GET  ?action=profile&id=127
+GET  ?action=profile&slug=k7mq2xdv9p
+POST { "action": "claim", "slug": "k7mq2xdv9p", "doctor": {…} }
 ```
 
-Returns only publishable fields, and only when the keychain is assigned and not
-blocked. `Notes`, `CreatedAt` and `UpdatedAt` are never included. Cached for 60
-seconds; any write to that ID clears the entry immediately.
+`profile` returns one of three shapes: a card, `claimable: true` (the set-up
+form), or a blocked/unknown state. There is **no numeric lookup** — `/d/1` must
+not work, or the random code buys nothing.
 
-### Admin — no auth, open to anyone with the URL
+`claim` needs no password: holding the keychain is the authority. It takes a
+lock, re-reads the row, and refuses with `ALREADY_CLAIMED` if it is taken.
+Field lengths are capped so a claim cannot stuff the sheet.
+
+### Staff read, open
 
 ```
 GET  ?action=stats
 GET  ?action=list&q=&status=&limit=50&offset=0
-GET  ?action=keychain&id=127
 ```
 
+`list` deliberately omits phone, email, bio and notes. The dashboard is not
+password-gated, so it must not be a directory of everyone's contact details.
+
+### Staff, password required
+
 ```
-POST { "action": "assign",    "id": 127, "doctor": {…}, "expectedStatus": "AVAILABLE" }
-POST { "action": "update",    "id": 127, "doctor": {…} }
-POST { "action": "setStatus", "id": 127, "status": "BLOCKED" }
-POST { "action": "seed",      "count": 500 }
+GET  ?action=verifyPassword&password=…
+GET  ?action=keychain&id=127&password=…
+
+POST { "action": "update",    "id": 127, "doctor": {…}, "password": "…" }
+POST { "action": "setStatus", "id": 127, "status": "BLOCKED", "password": "…" }
+POST { "action": "release",   "id": 127, "password": "…" }
+POST { "action": "seed",      "count": 500, "password": "…" }
 ```
+
+`release` erases a card **and issues a new code**, retiring the printed link. It
+is the escape hatch for a claim made in error, not a routine action.
 
 POSTs are sent as `text/plain` on purpose. Apps Script web apps do not answer
 CORS preflights, so an `application/json` body would fail in the browser.
 
-## Duplicate assignment
+## Codes
 
-`assign` takes a script lock, re-reads the row, and refuses with code `CONFLICT`
-unless the status is still `AVAILABLE` and no name is set. Two staff members
-racing on keychain 127 means the second one is told the keychain was just taken
-and nothing is overwritten — the reason the check lives here and not in the UI.
+10 characters from `23456789abcdefghjkmnpqrstuvwxyz` — no `0/o`, `1/l/i`, since
+these get read off a screen during support. About 8×10¹⁴ combinations.
+
+Generated from `Utilities.getUuid()`, not `Math.random()`. `Math.random()` in V8
+is a seeded PRNG whose future output can be derived from past values, so someone
+holding a handful of keychains could predict the codes on others.
 
 ## Limits to know
 
 - Apps Script allows roughly 20,000 URL fetches and 90 minutes of runtime per
-  day on a consumer account. An event registering a few hundred doctors is far
-  inside that; a public profile going viral is the case to watch, which is what
-  the 60-second cache is for.
-- There is no authentication on the admin endpoints. Anyone who has the
-  `/exec` URL can read and edit every keychain. Acceptable only because the
-  URL itself is not published; do not link to it from anything public.
+  day on a consumer account. Hundreds of claims is far inside that; a card
+  going viral is the case to watch, which is what the cache is for.
+- Public profile reads are cached 60s, but only 5s while unclaimed — so a claim
+  shows up on the next tap rather than a minute later.
+- There is no rate limit on `claim`. The code's unguessability is the only
+  protection, which is adequate as long as unclaimed links are never published.

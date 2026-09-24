@@ -11,20 +11,19 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
 
-      {/* The one dynamic route every physical keychain points at. */}
-      <Route path="/d/:id" element={<DoctorProfile />} />
+      {/*
+        The one dynamic route every physical keychain points at. The parameter
+        is the keychain's random code, never its number — /d/1 resolving would
+        defeat the point of the code.
+      */}
+      <Route path="/d/:slug" element={<DoctorProfile />} />
 
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="keychain/:id" element={<KeychainEditor />} />
       </Route>
 
-      {/* Legacy / typo-friendly aliases — same profile, same data. */}
-      <Route path="/doctor/:id" element={<DoctorProfile />} />
-      <Route path="/D/:id" element={<DoctorProfile />} />
-
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
 }
-

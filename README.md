@@ -1,35 +1,41 @@
-# Eqova — NFC + QR doctor keychains
+# Eqova — NFC + QR self-service cards
 
-A physical keychain carries an NFC chip and a printed QR code. Both point at the
-same permanent URL:
-
-```
-https://eqova.in/d/127
-```
-
-That URL identifies the **keychain**, not the doctor. The doctor's details live
-in a data store behind an API, so a doctor changing hospital or phone number
-never means reprinting a QR or re-encoding a chip.
+A physical keychain carries an NFC chip and a printed QR code. Both point at one
+permanent URL containing that keychain's own random code:
 
 ```
-NFC / QR  →  eqova.in/d/127  →  React app reads id=127  →  API  →  profile
+https://eqova.in/d/k7mq2xdv9p
 ```
+
+Tap it while it is unclaimed and you get a form. Fill it in and the keychain is
+yours. Tap it afterwards and you get your card.
+
+```
+tap unclaimed  →  set-up form  →  submit  →  card, from then on
+```
+
+Nobody assigns anything. Possession of the keychain is the authority, which is
+why the code in the URL is random rather than sequential: `/d/1` resolving would
+let anyone claim or read any keychain by counting.
+
+The sequential number still exists — it is printed on the keychain and is what
+the ops team searches by — but it is not a URL.
 
 ## What is here
 
 | Path | What it is |
 | --- | --- |
-| `web/` | React SPA — the public profile at `/d/:id` and the staff admin at `/admin` |
+| `web/` | React SPA — the card, the claim form, and the staff admin |
 | `apps-script/` | The API: one Apps Script web app in front of a Google Sheet |
 | `tools/` | Batch generator for QR images, NFC URL lists and a printable QA sheet |
-| `deploy/` | Nginx config for Lightsail, deploy steps |
-| `docs/` | Event runbook for desk staff, NFC encoding instructions |
+| `deploy/` | Apache coexistence with the live WordPress site, deploy scripts |
+| `docs/` | Migration guide, event runbook, NFC encoding, CI/CD |
 
 ## Getting it running
 
-**1. Data layer** — follow [`apps-script/README.md`](apps-script/README.md).
-Roughly: new Google Sheet → Apps Script → paste `Code.gs` →
-run `setup()` → deploy as a web app → copy the `/exec` URL.
+**1. Data layer** — [`apps-script/README.md`](apps-script/README.md). New Google
+Sheet → Apps Script → paste `Code.gs` → set `ADMIN_PASSWORD` → run `setup()` →
+deploy as a web app → copy the `/exec` URL.
 
 **2. Frontend**
 
@@ -40,95 +46,93 @@ npm install
 npm run dev
 ```
 
-- Public profile: http://localhost:5173/d/1
-- Admin: http://localhost:5173/admin
+Leave `VITE_API_BASE` blank to run against the in-browser mock, where the staff
+password is `demo`. Open `/admin` to find a code to try.
 
-**3. Keychain artwork and encoding**
+**3. Keychain artwork** — only after the codes exist:
 
 ```bash
 cd tools
 npm install
-node generate-batch.js --from 1 --to 500 --origin https://eqova.in
+node generate-batch.js --api "<your /exec URL>" --origin https://eqova.in
 ```
 
-Writes QR PNGs and SVGs, `keychains.csv`, `nfc-urls.txt` and a printable contact
-sheet into `tools/out/`. See [`docs/NFC-ENCODING.md`](docs/NFC-ENCODING.md).
-
 **4. Deploy** — [`deploy/DEPLOY.md`](deploy/DEPLOY.md).
+
+Already running an older build? [`docs/MIGRATION-SELF-SERVICE.md`](docs/MIGRATION-SELF-SERVICE.md).
 
 ## How the pieces fit
 
 ```
-                    PHYSICAL KEYCHAIN #127
-                     NFC chip   QR code
-                          │        │
-                          └───┬────┘
-                    https://eqova.in/d/127
-                              │
-                     Nginx on Lightsail
-                  try_files → index.html
-                              │
-                  React Router  /d/:id  →  id = 127
-                              │
-                     Apps Script web app
-                              │
-                       Google Sheet row
-                              │
-                    public profile fields
+                    PHYSICAL KEYCHAIN
+                 NFC chip      QR code
+                      └────┬────┘
+              https://eqova.in/d/k7mq2xdv9p
+                           │
+                  Apache on Lightsail
+             rewrite /d/<code> → the React app
+                           │
+              React Router  /d/:slug
+                           │
+                  Apps Script web app
+                           │
+                    Google Sheet row
+                           │
+        ┌──────────────────┴──────────────────┐
+   unclaimed → claim form            claimed → card
 ```
 
-Nothing in AWS is per-keychain. There is one route, `/d/:id`, and one Nginx
-`try_files` line that sends `/d/anything` to the app. 500 keychains or 50,000
-makes no difference to the server config.
+Nothing on the server is per-keychain. One route, one rewrite rule; 500
+keychains or 50,000 makes no difference.
 
 ## The parts that matter
 
-**The URL is permanent.** Once a keychain is manufactured, `eqova.in/d/127` is
-fixed forever. Everything else in this system is arranged around not breaking
-that promise — which is also why the ID is a plain number the ops team can read
-off a physical object and type into a search box.
+**The code is the credential.** Anyone holding the link can claim an unclaimed
+keychain. Codes are 10 characters from a 31-character alphabet and come from
+`Utilities.getUuid()`, not `Math.random()` — the latter's output is derivable
+from earlier values, which would let someone with a few keychains predict
+others. Never publish an unclaimed link.
 
-**Doctors do not exist before the event.** Keychains are seeded as `AVAILABLE`
-rows in advance. Staff claim one at the desk and fill in the details there.
+**The URL is permanent.** Once a keychain is manufactured its code is fixed.
+Details behind it change freely; the chip is never re-encoded.
 
-**Two staff cannot claim the same keychain.** `assign` takes a lock, re-reads
-the row, and refuses with `CONFLICT` if the status is no longer `AVAILABLE`.
-The second staff member is told to take a different keychain, and nothing is
-overwritten.
+**Claiming is once.** The form says so before submitting. Corrections go
+through staff, which is why Edit is password-gated rather than removed.
+
+**Two people cannot claim the same keychain.** The claim takes a lock, re-reads
+the row, and refuses with `ALREADY_CLAIMED` if it is no longer free.
 
 **The public API returns only public fields.** Internal notes and timestamps
-never leave the API layer, and an unassigned or blocked keychain returns no
-doctor details at all.
+never leave the API, and an unclaimed or blocked keychain returns no details.
 
-**Mobile first.** Nearly every scan is a phone held in one hand at a busy venue.
+**The admin list carries no contact details.** Names and hospitals yes, phone
+and email no — those need the password.
+
+**Mobile first.** Nearly every tap is a phone held in one hand.
 
 ## Statuses
 
-| Status | Meaning | Public profile shows |
+| Status | Meaning | The URL shows |
 | --- | --- | --- |
-| `AVAILABLE` | manufactured, not yet handed out | "not active yet" |
-| `ASSIGNED` | claimed, details incomplete | "not active yet" |
-| `ACTIVE` | live | the doctor's profile |
+| `AVAILABLE` | manufactured, unclaimed | the set-up form |
+| `ASSIGNED` | reserved by staff, no card yet | "not active yet" |
+| `ACTIVE` | claimed | the card |
 | `BLOCKED` | lost, withdrawn, or disputed | "currently unavailable" |
 
 ## Moving off Google Sheets later
 
 `web/src/lib/api.js` is the only file in the frontend that knows where data
-comes from. Swapping Sheets for Node + Postgres means standing up a service that
-answers the same shapes and changing `VITE_API_BASE`.
-
-```
-today:  eqova.in/d/127 → Apps Script → Google Sheet
-later:  eqova.in/d/127 → Node/Express → Postgres
-```
-
-The public URL structure does not change, so no keychain in anyone's pocket is
-affected.
+comes from. Swapping Sheets for Node + Postgres means answering the same shapes
+and changing `VITE_API_BASE`. The public URL structure does not change, so no
+keychain in anyone's pocket is affected.
 
 ## Known limits
 
-- `/admin` has no sign-in — anyone with the URL can view and edit every
-  keychain. Fine for a controlled device at one event; put real auth in front
-  of it before this becomes a standing product.
-- Apps Script quotas are generous for hundreds of registrations but are not a
-  CDN. Public profile reads are cached for 60 seconds to absorb a spike.
+- `/admin` needs no password to **view**. It shows no contact details, but it
+  does list names, hospitals and codes. Putting the whole panel behind the
+  password is a small change if you want it.
+- Apps Script quotas are generous for hundreds of claims but are not a CDN.
+  Public reads are cached 60s (5s while unclaimed, so a claim shows up at once).
+- There is no rate limit on claiming. The code's unguessability is the only
+  thing stopping automated claiming, which is adequate for codes that are never
+  published.
