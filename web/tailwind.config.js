@@ -4,6 +4,15 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Eqova Medicare brand palette, from the brand kit.
+        eqova: {
+          navy: '#0E3C56',   // primary
+          gold: '#F1AF38',   // primary accent
+          grey: '#A0A3A6',   // primary neutral
+          mist: '#F1F1F1',   // primary light
+          ink: '#232323',    // secondary
+          crimson: '#970E10', // secondary
+        },
         brand: {
           50: '#eef6ff',
           100: '#d9ebff',

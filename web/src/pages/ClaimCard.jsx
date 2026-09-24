@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { claimKeychain } from '../lib/api.js'
 import { Shell } from '../components/ProfileShell.jsx'
+import BrandFooter from '../components/BrandFooter.jsx'
 import DoctorFields, { EMPTY_DOCTOR, cleanDoctor, validateDoctor } from '../components/DoctorFields.jsx'
 
 /**
@@ -47,7 +48,8 @@ export default function ClaimCard({ slug, number, onClaimed }) {
   if (claimed) {
     return (
       <Shell>
-        <div className="rounded-3xl bg-white p-8 text-center shadow-xl shadow-brand-900/15">
+        <div className="overflow-hidden rounded-3xl bg-white text-center shadow-xl shadow-brand-900/15">
+          <div className="px-8 pb-6 pt-8">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-50 text-emerald-600">
             <svg
               className="h-7 w-7"
@@ -68,6 +70,8 @@ export default function ClaimCard({ slug, number, onClaimed }) {
           <button type="button" className="btn-primary mt-6 w-full" onClick={() => onClaimed(claimed)}>
             View my card
           </button>
+          </div>
+          <BrandFooter className="border-t border-slate-100" />
         </div>
       </Shell>
     )
@@ -110,6 +114,8 @@ export default function ClaimCard({ slug, number, onClaimed }) {
             {saving ? 'Saving…' : 'Create my card'}
           </button>
         </div>
+
+        <BrandFooter />
       </form>
     </Shell>
   )

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { fetchProfile } from '../lib/api.js'
 import Spinner from '../components/Spinner.jsx'
 import { Shell, Notice } from '../components/ProfileShell.jsx'
+import BrandFooter from '../components/BrandFooter.jsx'
 import ClaimCard from './ClaimCard.jsx'
 
 /**
@@ -153,11 +154,7 @@ function ProfileCard({ doctor }) {
         <SaveContactButton doctor={doctor} />
       </section>
 
-      <footer className="bg-slate-50 px-6 py-4 text-center">
-        <p className="text-xs text-slate-400">
-          Powered by <span className="font-semibold text-slate-500">Eqova</span>
-        </p>
-      </footer>
+      <BrandFooter className="bg-slate-50" />
     </article>
   )
 }
