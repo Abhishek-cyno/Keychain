@@ -52,7 +52,7 @@ function parseArgs(argv) {
   const args = {
     from: 1,
     to: 0,
-    origin: env.VITE_PUBLIC_ORIGIN || 'https://eqova.in',
+    origin: env.VITE_PUBLIC_ORIGIN || 'https://tap.eqova.in',
     pad: 3,
     api: env.VITE_API_BASE || '',
     csv: '',
@@ -181,7 +181,7 @@ async function main() {
 
   for (const { id, slug } of selected) {
     const label = String(id).padStart(pad, '0')
-    const url = `${origin}/d/${slug}`
+    const url = `${origin}/${slug}`
 
     await QRCode.toFile(join(qrDir, `eqova-${label}.png`), url, QR_OPTIONS)
     const svg = await QRCode.toString(url, { ...QR_OPTIONS, type: 'svg' })
@@ -251,7 +251,7 @@ function contactSheet(rows, svgs, origin) {
 <body>
   <header>
     <h1>Eqova keychains ${rows[0].label}–${rows[rows.length - 1].label}</h1>
-    <p>${rows.length} codes · each encodes ${origin}/d/&lt;its own code&gt; · write the same URL to that keychain's NFC chip</p>
+    <p>${rows.length} codes · each encodes ${origin}/&lt;its own code&gt; · write the same URL to that keychain's NFC chip</p>
   </header>
   <div class="grid">
 ${cells}

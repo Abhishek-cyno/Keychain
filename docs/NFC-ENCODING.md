@@ -3,14 +3,14 @@
 Each chip holds one thing: its own URL. Nothing else.
 
 ```
-Keychain #001  →  https://eqova.in/d/4g6yhtstvm
-Keychain #127  →  https://eqova.in/d/k7mq2xdv9p
-Keychain #500  →  https://eqova.in/d/w42vkg4yar
+Keychain #001  →  https://tap.eqova.in/4g6yhtstvm
+Keychain #127  →  https://tap.eqova.in/k7mq2xdv9p
+Keychain #500  →  https://tap.eqova.in/w42vkg4yar
 ```
 
-The code is **random and unique per keychain — not the number**. `/d/1` resolves
-to nothing on purpose: a sequential URL would let anyone claim or read any
-keychain by counting.
+The code is **random and unique per keychain — not the number**. The keychain's
+number is never a URL, on purpose: a sequential one would let anyone claim or
+read any keychain by counting.
 
 No name, no phone number. That is what makes the keychain permanent: the holder
 can change their details any time without the chip being touched.
@@ -22,7 +22,7 @@ They are generated when the rows are seeded, and this tool reads them back:
 ```bash
 cd tools
 npm install
-node generate-batch.js --api "<your /exec URL>" --origin https://eqova.in
+node generate-batch.js
 ```
 
 Generating codes locally would produce QR codes that resolve to nothing.

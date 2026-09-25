@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 # Never let two deploys interleave on the same server. Queue instead of
-# cancelling: a half-finished rsync into a live docroot is worse than waiting.
+# cancelling: a half-finished rsync into a live web root is worse than waiting.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -50,21 +50,27 @@ jobs:
           echo "VITE_PUBLIC_ORIGIN = [${VITE_PUBLIC_ORIGIN}]"
           npm run build
 
-      # These two checks exist because both failures are silent and ship a
-      # broken site that still returns HTTP 200.
+      # Each of these ships a broken site that still returns HTTP 200.
       - name: Verify the bundle is deployable
         working-directory: web
         run: |
           set -euo pipefail
 
-          # Wrong Vite base -> assets 404 under WordPress -> blank white page.
-          if ! grep -q '/keychain-app/assets/' dist/index.html; then
-            echo "::error::dist/index.html does not reference /keychain-app/. Check vite.config.js base."
+          # Without .htaccess every /<code> URL 404s, because none of them
+          # exist on disk.
+          if [ ! -f dist/.htaccess ]; then
+            echo "::error::dist/.htaccess is missing. It should be copied from web/public/."
+            exit 1
+          fi
+
+          # Wrong Vite base -> assets 404 -> blank white page.
+          if ! grep -q 'src="/assets/' dist/index.html; then
+            echo "::error::index.html does not reference /assets/. Check the Vite base."
             exit 1
           fi
 
           # Missing VITE_API_BASE -> USING_MOCK stays true -> the live site
-          # would serve seeded demo doctors from localStorage.
+          # would serve seeded demo data to real people.
           if ! grep -rq 'script.google.com' dist/assets/; then
             echo "::error::No Apps Script URL in the bundle. Set the VITE_API_BASE repository variable, or this deploys in mock mode."
             exit 1
@@ -78,11 +84,12 @@ jobs:
         with:
           name: web-dist
           path: web/dist/
+          include-hidden-files: true   # .htaccess
           retention-days: 7
           if-no-files-found: error
 
   deploy:
-    name: Deploy to Lightsail
+    name: Deploy to DreamHost
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -91,7 +98,7 @@ jobs:
     # approval instead of going straight to the live site.
     environment:
       name: production
-      url: https://eqova.in/admin
+      url: https://tap.eqova.in/admin
 
     steps:
       # Report what actually reached the job before anything tries to use it.
@@ -102,7 +109,7 @@ jobs:
           DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-          DEPLOY_DOCROOT: ${{ vars.DEPLOY_DOCROOT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         run: |
           set -uo pipefail
           missing=0
@@ -123,7 +130,7 @@ jobs:
           echo "Variables (same page, Variables tab):"
           report DEPLOY_HOST     "${DEPLOY_HOST:-}"     "required"
           report DEPLOY_USER     "${DEPLOY_USER:-}"     "required"
-          report DEPLOY_DOCROOT  "${DEPLOY_DOCROOT:-}"  "required"
+          report DEPLOY_PATH     "${DEPLOY_PATH:-}"     "required"
 
           if [ "$missing" -ne 0 ]; then
             echo
@@ -156,7 +163,7 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          # Validate here rather than letting scp fail cryptically later.
+          # Validate here rather than letting rsync fail cryptically later.
           # The fingerprint is safe to log; the key itself never is.
           if ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
             echo -n "Deploy key OK: "
@@ -189,74 +196,59 @@ jobs:
           fi
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Ship to server
+      - name: Ship to DreamHost
         env:
           DEPLOY_HOST_RAW: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER_RAW: ${{ vars.DEPLOY_USER }}
-          DEPLOY_DOCROOT_RAW: ${{ vars.DEPLOY_DOCROOT }}
+          DEPLOY_PATH_RAW: ${{ vars.DEPLOY_PATH }}
         run: |
           set -euo pipefail
 
           # A value pasted into the GitHub UI often keeps a trailing newline.
-          # Unstripped, "bitnami\n@host\n" makes ssh reject the username
-          # outright ("remote username contains invalid characters").
+          # Unstripped, "user\n@host\n" makes ssh reject the username outright.
           trim() { printf '%s' "${1:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
           DEPLOY_HOST="$(trim "$DEPLOY_HOST_RAW")"
           DEPLOY_USER="$(trim "$DEPLOY_USER_RAW")"
-          DEPLOY_DOCROOT="$(trim "$DEPLOY_DOCROOT_RAW")"
+          DEPLOY_PATH="$(trim "$DEPLOY_PATH_RAW")"
 
-          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_DOCROOT; do
-            if [ -z "${!v}" ]; then
-              echo "::error::Repository variable $v is empty. Settings -> Secrets and variables -> Actions -> Variables."
-              exit 1
-            fi
-          done
+          echo "Deploying to [$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH]"
 
-          SSH="ssh -i ~/.ssh/deploy_key -o BatchMode=yes"
-          TARGET="$DEPLOY_USER@$DEPLOY_HOST"
-          APPDIR="$DEPLOY_DOCROOT/keychain-app"
-          echo "Deploying to [$TARGET] at [$APPDIR]"
-
-          $SSH "$TARGET" 'rm -rf /tmp/keychain-app && mkdir -p /tmp/keychain-app'
-          scp -i ~/.ssh/deploy_key -o BatchMode=yes -q -r dist/* "$TARGET:/tmp/keychain-app/"
-
-          # Wipe before copying: Vite fingerprints filenames, so old builds
-          # would otherwise leave orphaned assets behind indefinitely.
-          $SSH "$TARGET" "sudo mkdir -p '$APPDIR' \
-            && sudo rm -rf '$APPDIR'/* \
-            && sudo cp -r /tmp/keychain-app/* '$APPDIR'/ \
-            && sudo chown -R daemon:daemon '$APPDIR' \
-            && rm -rf /tmp/keychain-app \
-            && ls -la '$APPDIR'"
+          # --delete clears the previous build's fingerprinted assets, which
+          # would otherwise accumulate indefinitely. The web root holds nothing
+          # but the build; DreamHost keeps logs outside it.
+          rsync -az --delete --itemize-changes \
+            -e "ssh -i ~/.ssh/deploy_key -o BatchMode=yes" \
+            dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
 
       - name: Verify the live site
+        env:
+          ORIGIN_RAW: ${{ vars.VITE_PUBLIC_ORIGIN }}
         run: |
           set -euo pipefail
+          ORIGIN="$(printf '%s' "${ORIGIN_RAW:-https://tap.eqova.in}" | tr -d '[:space:]')"
           fail=0
 
           check() {
             code=$(curl -s -o /dev/null -L -m 30 -w '%{http_code}' "$1" || echo 000)
-            printf '  %-45s -> %s\n' "$1" "$code"
+            printf '  %-46s -> %s\n' "$1" "$code"
             [ "$code" = "200" ] || fail=1
           }
 
           # A well-formed but deliberately fake code. Keychain codes are random
           # and secret, so CI cannot hold a real one — and it does not need to.
-          # What matters here is that Apache hands /d/<code> to the app at all;
-          # the app answering "not recognised" still proves the rewrite works.
-          probe=https://eqova.in/d/zzzzzzzzzz
-
-          check "$probe"
-          check https://eqova.in/admin
-          check https://www.eqova.in/
+          # A 200 proves the .htaccess SPA fallback is serving the app; the app
+          # answering "not recognised" is the correct result for a fake code.
+          check "$ORIGIN/zzzzzzzzzz"
+          check "$ORIGIN/admin"
+          check "$ORIGIN/"
 
           # The asset the page actually loads — catches a half-copied bundle.
-          asset=$(curl -s -L -m 30 "$probe" | grep -o '/keychain-app/assets/[^"]*\.js' | head -1)
+          asset=$(curl -s -L -m 30 "$ORIGIN/zzzzzzzzzz" | grep -o '/assets/[^"]*\.js' | head -1)
           if [ -z "$asset" ]; then
-            echo "::error::Served HTML has no /keychain-app/ asset reference."
+            echo "::error::Served HTML has no /assets/ reference."
             exit 1
           fi
-          check "https://eqova.in$asset"
+          check "$ORIGIN$asset"
 
           [ "$fail" = "0" ] || { echo "::error::Post-deploy verification failed."; exit 1; }
           echo "Live and serving."

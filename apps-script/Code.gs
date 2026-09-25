@@ -2,7 +2,7 @@
  * Eqova keychain API — Google Apps Script web app in front of a Google Sheet.
  *
  * Self-service model:
- *   Every keychain carries an unguessable slug, e.g. eqova.in/d/k7mq2xdv9p.
+ *   Every keychain carries an unguessable slug, e.g. tap.eqova.in/k7mq2xdv9p.
  *   Tapping an unclaimed keychain opens a form; whoever holds the physical
  *   object fills in their own details and claims it. Tapping a claimed one
  *   shows that person's card. Staff never assign anything.

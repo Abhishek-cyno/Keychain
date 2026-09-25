@@ -1,0 +1,48 @@
+# Eqova keychain app — Apache config for DreamHost shared hosting.
+#
+# This file lives in web/public/ so Vite copies it into dist/ on every build.
+# That matters: the deploy uses rsync --delete, and a .htaccess that only
+# existed on the server would be wiped by the first deploy that ran without it.
+
+RewriteEngine On
+
+# ---- HTTPS ----------------------------------------------------------------
+# NFC taps open the URL in the phone's browser. Plain HTTP shows a "Not
+# secure" warning to whoever is holding the keychain, so redirect first.
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !https
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# ---- Single-page app ------------------------------------------------------
+# Every keychain code is a path at the domain root: tap.eqova.in/k7mq2xdv9p.
+# None of those exist on disk, so without this fallback Apache returns 404
+# before React ever loads. Real files and directories are served normally,
+# which is what keeps /assets/... working.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /index.html [L]
+
+# ---- Caching --------------------------------------------------------------
+<IfModule mod_headers.c>
+  # Vite fingerprints these filenames, so they can be cached hard.
+  <FilesMatch "\.(js|css|svg|woff2?|png|jpg|webp)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # The SPA shell must never be cached, or a deploy will not reach a phone
+  # that has already opened a profile.
+  <Files "index.html">
+    Header set Cache-Control "no-store, must-revalidate"
+  </Files>
+
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ---- Compression ----------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/plain application/javascript application/json image/svg+xml
+</IfModule>
+
+# Nothing here is a directory listing worth showing.
+Options -Indexes

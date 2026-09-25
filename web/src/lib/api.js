@@ -22,8 +22,14 @@ export const PUBLIC_ORIGIN = (
   import.meta.env.VITE_PUBLIC_ORIGIN || window.location.origin
 ).replace(/\/$/, '')
 
+/**
+ * Paths the app owns, which therefore can never be a keychain code. The code
+ * generator excludes them too, so one can never be minted.
+ */
+export const RESERVED_PATHS = ['admin', 'assets', 'api', 'static', 'index.html']
+
 export function profileUrl(slug) {
-  return `${PUBLIC_ORIGIN}/d/${slug}`
+  return `${PUBLIC_ORIGIN}/${slug}`
 }
 
 export class ApiError extends Error {

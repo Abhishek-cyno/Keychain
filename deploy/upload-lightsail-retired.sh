@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# RETIRED: this deploys to the old Lightsail host. Kept only until the
+# Lightsail rules are uninstalled — see deploy/DEPLOY-DREAMHOST.md step 9.
+# For DreamHost use deploy/upload-dreamhost.sh.
+#
 # Build and ship the frontend to the Lightsail instance.
 #
 # Usage, from the repo root in Git Bash:

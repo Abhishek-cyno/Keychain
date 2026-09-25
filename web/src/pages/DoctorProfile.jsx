@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { fetchProfile } from '../lib/api.js'
+import { fetchProfile, RESERVED_PATHS } from '../lib/api.js'
 import Spinner from '../components/Spinner.jsx'
 import { Shell, Notice } from '../components/ProfileShell.jsx'
 import BrandFooter from '../components/BrandFooter.jsx'
@@ -12,8 +12,9 @@ import ClaimCard from './ClaimCard.jsx'
  *   - a form, if it is still unclaimed and whoever is holding it can claim it
  *   - a notice, if it is blocked or the code is unknown
  *
- * The slug in the URL is the only key. There is no numeric lookup, by design:
- * if /d/1 worked, the random code on the keychain would buy nothing.
+ * The code in the URL is the only key — tap.eqova.in/<code>. There is no
+ * numeric lookup, by design: if the keychain's number resolved, the random
+ * code would buy nothing.
  */
 export default function DoctorProfile() {
   const { slug } = useParams()
@@ -25,12 +26,17 @@ export default function DoctorProfile() {
 
     // Cheap client-side shape check, so an obviously wrong link does not cost
     // a round trip. The server validates properly regardless.
-    if (!/^[a-z0-9]{4,32}$/i.test(String(slug || ''))) {
+    //
+    // Codes now sit at the domain root, so a path the app owns could be
+    // mistaken for one. Router ranking already prevents that; this makes it
+    // true even if the routes are rearranged later.
+    const candidate = String(slug || '').toLowerCase()
+    if (!/^[a-z0-9]{4,32}$/.test(candidate) || RESERVED_PATHS.includes(candidate)) {
       setState({ status: 'error', code: 'NOT_FOUND' })
       return
     }
 
-    fetchProfile(String(slug).toLowerCase()).then(
+    fetchProfile(candidate).then(
       (data) => !cancelled && setState({ status: 'ready', data }),
       (err) => !cancelled && setState({ status: 'error', code: err.code, message: err.message })
     )

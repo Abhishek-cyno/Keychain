@@ -11,3 +11,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# DreamHost SSH target (host + user, not secret but not shared)
+deploy/dreamhost.env

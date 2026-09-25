@@ -4,7 +4,7 @@ A physical keychain carries an NFC chip and a printed QR code. Both point at one
 permanent URL containing that keychain's own random code:
 
 ```
-https://eqova.in/d/k7mq2xdv9p
+https://tap.eqova.in/k7mq2xdv9p
 ```
 
 Tap it while it is unclaimed and you get a form. Fill it in and the keychain is
@@ -15,8 +15,8 @@ tap unclaimed  →  set-up form  →  submit  →  card, from then on
 ```
 
 Nobody assigns anything. Possession of the keychain is the authority, which is
-why the code in the URL is random rather than sequential: `/d/1` resolving would
-let anyone claim or read any keychain by counting.
+why the code in the URL is random rather than sequential: a countable URL would
+let anyone claim or read any keychain in the batch.
 
 The sequential number still exists — it is printed on the keychain and is what
 the ops team searches by — but it is not a URL.
@@ -28,7 +28,7 @@ the ops team searches by — but it is not a URL.
 | `web/` | React SPA — the card, the claim form, and the staff admin |
 | `apps-script/` | The API: one Apps Script web app in front of a Google Sheet |
 | `tools/` | Batch generator for QR images, NFC URL lists and a printable QA sheet |
-| `deploy/` | Apache coexistence with the live WordPress site, deploy scripts |
+| `deploy/` | DreamHost hosting config and deploy scripts |
 | `docs/` | Migration guide, event runbook, NFC encoding, CI/CD |
 
 ## Getting it running
@@ -54,10 +54,10 @@ password is `demo`. Open `/admin` to find a code to try.
 ```bash
 cd tools
 npm install
-node generate-batch.js --api "<your /exec URL>" --origin https://eqova.in
+node generate-batch.js
 ```
 
-**4. Deploy** — [`deploy/DEPLOY.md`](deploy/DEPLOY.md).
+**4. Deploy** — [`deploy/DEPLOY-DREAMHOST.md`](deploy/DEPLOY-DREAMHOST.md).
 
 Already running an older build? [`docs/MIGRATION-SELF-SERVICE.md`](docs/MIGRATION-SELF-SERVICE.md).
 
@@ -67,12 +67,12 @@ Already running an older build? [`docs/MIGRATION-SELF-SERVICE.md`](docs/MIGRATIO
                     PHYSICAL KEYCHAIN
                  NFC chip      QR code
                       └────┬────┘
-              https://eqova.in/d/k7mq2xdv9p
+              https://tap.eqova.in/k7mq2xdv9p
                            │
-                  Apache on Lightsail
-             rewrite /d/<code> → the React app
+                Apache on DreamHost
+          .htaccess falls back to index.html
                            │
-              React Router  /d/:slug
+              React Router  /:slug
                            │
                   Apps Script web app
                            │
@@ -82,7 +82,7 @@ Already running an older build? [`docs/MIGRATION-SELF-SERVICE.md`](docs/MIGRATIO
    unclaimed → claim form            claimed → card
 ```
 
-Nothing on the server is per-keychain. One route, one rewrite rule; 500
+Nothing on the server is per-keychain. One route, one `.htaccess` fallback; 500
 keychains or 50,000 makes no difference.
 
 ## The parts that matter
