@@ -10,34 +10,64 @@ after    https://tap.eqova.in/k7mq2xdv9p   (DreamHost, own domain)
 Nothing but the frontend moves. The data layer is still the Apps Script web
 app, hosted by Google — there is no backend to deploy.
 
-## 1. Create the site in DreamHost
+## This deployment, as configured
 
-**Panel → Websites → Manage Websites → Add Website.**
-
-- Domain: `tap.eqova.in`
-- Hosting: the shared plan on your account
-- Web directory: accept the default, `/home/<user>/tap.eqova.in`
-- Leave "Remove WWW" / "Add WWW" alone — a subdomain needs neither
-- PHP: irrelevant here, the site is static
-
-Note two things from the panel, you need both later:
-
-| | Where |
+| | |
 | --- | --- |
-| **Shell user** | Panel → Websites → Manage Websites, or Users → SFTP Users |
-| **Server hostname** | e.g. `iad1-shared-e1-05.dreamhost.com`, on the same page |
+| Plan | **VPS Basic**, `vps40384`, US-East (Ashburn) |
+| Host | `vps40384.dreamhostps.com` → `173.236.161.197` |
+| User | `medicone_keychain` |
+| Home | `/home/medicone_keychain` |
+| Web root | `/home/medicone_keychain/tap.eqova.in` |
 
-Make sure the user is a **Shell user**, not SFTP-only — rsync needs SSH.
+These are already in `deploy/dreamhost.env`.
 
-## 2. Point DNS at DreamHost
+## 1. Enable SSH for the user
 
-`eqova.in` runs on AWS nameservers, so the record goes in **AWS**, not
-DreamHost. Find the hosting IP in the DreamHost panel (Manage Websites shows
-it), then in your Route 53 / Lightsail DNS zone for `eqova.in`:
+**This is the blocker, and it is easy to miss.** On the site's panel page,
+*Files Access* shows a **Secure Shell Access (SSH)** toggle. If it is off, the
+user is SFTP-only: `rsync` needs a real shell and will fail.
 
-| Type | Name | Value |
-| --- | --- | --- |
-| A | `tap` | the DreamHost IPv4 address |
+Turn it on, then set a password with **Change password** — you need it once, to
+install your key.
+
+A quick way to tell which you have: `ssh <user>@<host>` on an SFTP-only account
+connects and then immediately closes, or refuses a shell.
+
+## 2. Install your SSH key
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/eqova-dreamhost -N ""
+```
+
+```bash
+ssh-copy-id -i ~/.ssh/eqova-dreamhost.pub medicone_keychain@vps40384.dreamhostps.com
+```
+
+That prompts for the password you just set. Then confirm a real shell:
+
+```bash
+ssh -i ~/.ssh/eqova-dreamhost medicone_keychain@vps40384.dreamhostps.com "pwd && ls -d tap.eqova.in"
+```
+
+It must print the home directory and the site folder. If it hangs or exits
+without output, SSH is still not enabled.
+
+## 3. Point DNS at the VPS
+
+`eqova.in` runs on **AWS nameservers**, so the record goes in Route 53, not
+DreamHost. In the `eqova.in` hosted zone:
+
+| Type | Name | Value | TTL |
+| --- | --- | --- | --- |
+| A | `tap` | `173.236.161.197` | 300 |
+
+That address is the VPS: `vps40384.dreamhostps.com` resolves to it. Confirm it
+against the panel before relying on it — on a VPS every site shares the one IP,
+so it rarely changes, but the panel is the authority.
+
+Leave the nameservers alone. `eqova.in` itself must keep pointing at Lightsail
+(`13.202.18.203`) or the WordPress site goes down.
 
 ### The wildcard, and why one A record is enough
 
@@ -64,44 +94,18 @@ IPv6 instead.
 
 DNS takes a few minutes to an hour to propagate.
 
-## 3. Turn on HTTPS
+## 4. Turn on HTTPS
 
 **Panel → Websites → Secure Hosting → Add**, pick the free Let's Encrypt
 certificate for `tap.eqova.in`.
 
-It will not issue until DNS resolves to DreamHost, so do step 2 first. NFC taps
+It will not issue until DNS resolves to the VPS, so do step 3 first. NFC taps
 open in the phone's browser, and plain HTTP shows a "Not secure" warning to
 whoever is holding the keychain.
 
-## 4. Set up SSH keys
-
-On your machine:
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/eqova-dreamhost -N ""
-```
-
-```bash
-ssh-copy-id -i ~/.ssh/eqova-dreamhost.pub <shell-user>@<server>.dreamhost.com
-```
-
-Check it works:
-
-```bash
-ssh -i ~/.ssh/eqova-dreamhost <shell-user>@<server>.dreamhost.com "pwd && ls -d tap.eqova.in"
-```
-
 ## 5. Deploy
 
-Create `deploy/dreamhost.env` (gitignored):
-
-```
-DH_USER=your-shell-user
-DH_HOST=iad1-shared-e1-05.dreamhost.com
-DH_PATH=tap.eqova.in
-```
-
-Then, from Git Bash:
+`deploy/dreamhost.env` is already written with the values above. From Git Bash:
 
 ```bash
 bash deploy/upload-dreamhost.sh
