@@ -103,10 +103,12 @@ tar -czf - -C web/dist . | "${SSH[@]}" "$TARGET" "
 
 echo
 echo "==> Verifying"
+# curl prints 000 itself on a failed connection AND exits non-zero, so a
+# `|| echo 000` fallback would print it twice.
 ORIGIN="${VITE_PUBLIC_ORIGIN:-https://tap.eqova.in}"
 for path in / /admin /zzzzzzzzzz; do
-  code=$(curl -s -o /dev/null -L -m 30 -w '%{http_code}' "$ORIGIN$path" || echo 000)
-  printf '  %-14s -> %s\n' "$path" "$code"
+  code=$(curl -s -o /dev/null -L -m 30 -w '%{http_code}' "$ORIGIN$path" 2>/dev/null) || true
+  printf '  %-14s -> %s\n' "$path" "${code:-000}"
 done
 
 cat <<'DONE'
@@ -115,5 +117,6 @@ A 200 on /zzzzzzzzzz is correct — it proves the SPA fallback works. The app
 itself will say "Keychain not recognised", which is the right answer for a
 code that does not exist.
 
-000 everywhere means DNS has not propagated yet, not that the deploy failed.
+000 everywhere means DNS has not reached this machine yet, not that the deploy
+failed. Run deploy/check-dreamhost.sh to see which piece is still missing.
 DONE
