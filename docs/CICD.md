@@ -114,7 +114,8 @@ previous run's can also be downloaded and shipped by hand.
 
 ## Local deploys still work
 
-`deploy/upload-dreamhost.sh` does the same thing from your machine. Keep it for
+`deploy/upload-dreamhost.sh` does the same thing from your machine (via tar
+over ssh, since Git Bash has no rsync). Keep it for
 urgent fixes when you do not want to wait for a runner — but expect the next
 push to `main` to overwrite whatever you pushed by hand.
 

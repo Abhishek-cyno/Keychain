@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 #
-# Build and ship the frontend to DreamHost shared hosting.
+# Build and ship the frontend to the DreamHost VPS.
 #
 #   bash deploy/upload-dreamhost.sh
 #
-# Configure once in deploy/dreamhost.env (gitignored — it holds your SSH user
-# and server), or override per run:
+# Target comes from deploy/dreamhost.env (gitignored), or per-run overrides:
 #
-#   DH_USER=eqova DH_HOST=iad1-shared-e1-05.dreamhost.com \
+#   DH_USER=medicone_keychain DH_HOST=vps40384.dreamhostps.com \
 #     bash deploy/upload-dreamhost.sh
 #
-# Key-based SSH is expected. Set it up once with:
+# Key-based SSH is expected:
 #   ssh-keygen -t ed25519 -f ~/.ssh/eqova-dreamhost -N ""
-#   ssh-copy-id -i ~/.ssh/eqova-dreamhost.pub <user>@<server>.dreamhost.com
+#   ssh-copy-id -i ~/.ssh/eqova-dreamhost.pub <user>@<host>
+#
+# Transfer is tar over ssh rather than rsync. Git Bash on Windows ships no
+# rsync, and installing one is a machine-specific detour on the very machine
+# that has to be able to deploy. tar and ssh are already there on both ends.
 
 set -euo pipefail
 
@@ -24,33 +27,42 @@ cd "$ROOT"
 
 DH_USER="${DH_USER:-}"
 DH_HOST="${DH_HOST:-}"
-DH_PATH="${DH_PATH:-tap.eqova.in}"
+DH_PATH="${DH_PATH:-}"
 DH_KEY="${DH_KEY:-$HOME/.ssh/eqova-dreamhost}"
 
-if [ -z "$DH_USER" ] || [ -z "$DH_HOST" ]; then
+if [ -z "$DH_USER" ] || [ -z "$DH_HOST" ] || [ -z "$DH_PATH" ]; then
   cat >&2 <<'MISSING'
-DH_USER and DH_HOST are not set.
+DH_USER, DH_HOST and DH_PATH must all be set.
 
 Create deploy/dreamhost.env with:
 
-  DH_USER=your-shell-user
-  DH_HOST=iad1-shared-e1-05.dreamhost.com
+  DH_USER=medicone_keychain
+  DH_HOST=vps40384.dreamhostps.com
   DH_PATH=tap.eqova.in
 
-Both come from the DreamHost panel: Websites -> Manage Websites -> the site's
-"Manage" page shows the web directory, and Servers -> the server's hostname.
+DH_PATH is relative to the remote home directory.
 MISSING
   exit 1
 fi
 
-SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
-[ -f "$DH_KEY" ] && SSH_OPTS+=(-i "$DH_KEY")
+# The remote step deletes everything under DH_PATH. Refuse anything that could
+# mean "the whole home directory".
+case "$DH_PATH" in
+  ""|"."|"/"|"~"|"~/"|/*|*..*)
+    echo "Refusing to deploy to DH_PATH='$DH_PATH' — it must be a simple path relative to the remote home." >&2
+    exit 1
+    ;;
+esac
+
+SSH=(ssh -o StrictHostKeyChecking=accept-new)
+[ -f "$DH_KEY" ] && SSH+=(-i "$DH_KEY")
+TARGET="$DH_USER@$DH_HOST"
 
 echo "==> Building"
 ( cd web && npm run build )
 
-# Three things that are each silently fatal in production, and each of which
-# has already bitten this project once.
+# Four things that are each silently fatal in production, and each of which has
+# already bitten this project once.
 if [ ! -f web/dist/index.html ]; then
   echo "Build produced no web/dist/index.html — aborting." >&2
   exit 1
@@ -69,26 +81,39 @@ if ! grep -rq 'script.google.com' web/dist/assets/; then
   exit 1
 fi
 
-echo "==> Uploading to $DH_USER@$DH_HOST:$DH_PATH"
+echo "==> Checking the remote"
+"${SSH[@]}" "$TARGET" "test -d '$DH_PATH'" || {
+  echo "Remote directory '$DH_PATH' does not exist under the home directory." >&2
+  echo "Is the site created in the panel, and is SSH (not SFTP-only) enabled?" >&2
+  exit 1
+}
 
-# --delete removes the previous build's fingerprinted assets, which otherwise
-# accumulate forever. Safe here because this directory holds nothing but the
-# build — DreamHost keeps logs outside the web root.
-rsync -az --delete --itemize-changes \
-  -e "ssh ${SSH_OPTS[*]}" \
-  web/dist/ "$DH_USER@$DH_HOST:$DH_PATH/"
+echo "==> Shipping to $TARGET:~/$DH_PATH"
+# "." rather than "*" so dotfiles — .htaccess above all — are included.
+# The remote clears the directory first: Vite fingerprints filenames, so old
+# builds would otherwise pile up indefinitely.
+tar -czf - -C web/dist . | "${SSH[@]}" "$TARGET" "
+  set -eu
+  cd '$DH_PATH'
+  find . -mindepth 1 -delete
+  tar -xzf -
+  echo '--- deployed ---'
+  ls -a
+"
 
 echo
-echo "==> Deployed. Verifying"
+echo "==> Verifying"
 ORIGIN="${VITE_PUBLIC_ORIGIN:-https://tap.eqova.in}"
 for path in / /admin /zzzzzzzzzz; do
   code=$(curl -s -o /dev/null -L -m 30 -w '%{http_code}' "$ORIGIN$path" || echo 000)
   printf '  %-14s -> %s\n' "$path" "$code"
 done
 
-cat <<DONE
+cat <<'DONE'
 
 A 200 on /zzzzzzzzzz is correct — it proves the SPA fallback works. The app
 itself will say "Keychain not recognised", which is the right answer for a
 code that does not exist.
+
+000 everywhere means DNS has not propagated yet, not that the deploy failed.
 DONE

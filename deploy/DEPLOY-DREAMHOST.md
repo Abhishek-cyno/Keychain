@@ -26,7 +26,8 @@ These are already in `deploy/dreamhost.env`.
 
 **This is the blocker, and it is easy to miss.** On the site's panel page,
 *Files Access* shows a **Secure Shell Access (SSH)** toggle. If it is off, the
-user is SFTP-only: `rsync` needs a real shell and will fail.
+user is SFTP-only: the deploy pipes a tar through ssh, which needs a real
+shell and will fail without one.
 
 Turn it on, then set a password with **Change password** — you need it once, to
 install your key.
@@ -111,7 +112,7 @@ whoever is holding the keychain.
 bash deploy/upload-dreamhost.sh
 ```
 
-It builds, refuses to ship a broken bundle, rsyncs, and verifies the live URLs.
+It builds, refuses to ship a broken bundle, ships it, and verifies the live URLs.
 
 The four checks it refuses on, each of which ships a site that still returns
 HTTP 200:
@@ -139,8 +140,23 @@ Keychain codes are paths at the domain root and none of them exist on disk, so
 without this Apache 404s before React loads. Real files and directories are
 served normally, which is what keeps `/assets/...` working.
 
-It lives in `public/` rather than on the server on purpose: `rsync --delete`
-would wipe a server-only `.htaccess` on the first deploy that ran without it.
+It lives in `public/` rather than on the server on purpose: the deploy clears
+the web root before extracting, so a copy that existed only on the server would
+be wiped by the first deploy that ran without it.
+
+## How the transfer works
+
+`tar -czf - -C web/dist . | ssh … "cd <root>; find . -mindepth 1 -delete; tar -xzf -"`
+
+Not `rsync`: Git Bash on Windows ships none, and installing one is a
+machine-specific detour on the very machine that has to be able to deploy. tar
+and ssh are already on both ends. CI still uses rsync — the Ubuntu runner has
+it, and it transfers less on a repeat deploy.
+
+The `.` in the tar (rather than `*`) is what includes dotfiles, `.htaccess`
+above all. Clearing the directory first matters because Vite fingerprints
+filenames, so old builds would otherwise pile up indefinitely. The script
+refuses any `DH_PATH` that could mean the home directory itself.
 
 ## 7. CI/CD
 

@@ -1,7 +1,7 @@
 # Eqova keychain app — Apache config for DreamHost shared hosting.
 #
 # This file lives in web/public/ so Vite copies it into dist/ on every build.
-# That matters: the deploy uses rsync --delete, and a .htaccess that only
+# That matters: the deploy clears the web root before extracting, so a .htaccess that only
 # existed on the server would be wiped by the first deploy that ran without it.
 
 RewriteEngine On
