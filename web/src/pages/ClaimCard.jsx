@@ -80,7 +80,7 @@ export default function ClaimCard({ slug, number, onClaimed }) {
   return (
     <Shell>
       <form onSubmit={submit} className="space-y-4">
-        <header className="rounded-3xl bg-white p-6 text-center shadow-xl shadow-brand-900/15">
+        {/* <header className="rounded-3xl bg-white p-6 text-center shadow-xl shadow-brand-900/15">
           <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-600 text-lg font-bold text-white">
             E
           </span>
@@ -95,7 +95,7 @@ export default function ClaimCard({ slug, number, onClaimed }) {
               {' '}— check this matches the number on yours.
             </p>
           ) : null}
-        </header>
+        </header> */}
 
         <DoctorFields form={form} onChange={update} />
 

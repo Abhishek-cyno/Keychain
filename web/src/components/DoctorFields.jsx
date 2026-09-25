@@ -29,6 +29,55 @@ export function Field({ label, hint, required, children }) {
   )
 }
 
+const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+65', '+971', '+966', '+974', '+977', '+880', '+94']
+const DEFAULT_CODE = '+91'
+
+/**
+ * Mobile is stored as one string ("+91 9876543210") so the sheet and the card
+ * are unchanged; here it is split into a country code and a 10-digit number.
+ */
+export function splitMobile(value) {
+  const raw = String(value || '').trim()
+  const match = raw.match(/^(\+\d{1,4})\s*(.*)$/)
+  const code = match ? match[1] : DEFAULT_CODE
+  const number = (match ? match[2] : raw).replace(/\D/g, '').slice(0, 10)
+  return { code, number }
+}
+
+function MobileInput({ value, onChange }) {
+  const { code, number } = splitMobile(value)
+  const codes = COUNTRY_CODES.includes(code) ? COUNTRY_CODES : [code, ...COUNTRY_CODES]
+  const join = (c, n) => `${c} ${n}`
+
+  return (
+    <div className="flex gap-2">
+      <select
+        className="input !w-auto shrink-0"
+        value={code}
+        onChange={(e) => onChange(join(e.target.value, number))}
+        aria-label="Country code"
+        autoComplete="tel-country-code"
+      >
+        {codes.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+      <input
+        className="input min-w-0 flex-1"
+        type="tel"
+        inputMode="numeric"
+        maxLength={10}
+        value={number}
+        onChange={(e) => onChange(join(code, e.target.value.replace(/\D/g, '').slice(0, 10)))}
+        placeholder="9876543210"
+        autoComplete="tel-national"
+      />
+    </div>
+  )
+}
+
 export default function DoctorFields({ form, onChange }) {
   const set = (field) => (e) => onChange(field, e.target.value)
 
@@ -98,29 +147,20 @@ export default function DoctorFields({ form, onChange }) {
           />
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Mobile">
-            <input
-              className="input"
-              type="tel"
-              inputMode="tel"
-              value={form.mobile}
-              onChange={set('mobile')}
-              placeholder="+91 98765 43210"
-              autoComplete="tel"
-            />
-          </Field>
-          <Field label="Phone">
-            <input
-              className="input"
-              type="tel"
-              inputMode="tel"
-              value={form.phone}
-              onChange={set('phone')}
-              placeholder="Landline or office"
-            />
-          </Field>
-        </div>
+        <Field label="Mobile">
+          <MobileInput value={form.mobile} onChange={(value) => onChange('mobile', value)} />
+        </Field>
+
+        <Field label="Phone">
+          <input
+            className="input"
+            type="tel"
+            inputMode="tel"
+            value={form.phone}
+            onChange={set('phone')}
+            placeholder="Landline or office"
+          />
+        </Field>
 
         <Field label="Website">
           <input
@@ -161,11 +201,15 @@ export function cleanDoctor(form) {
   Object.keys(EMPTY_DOCTOR).forEach((field) => {
     out[field] = String(form[field] || '').trim()
   })
+  // A country code on its own is not a number worth showing.
+  if (!splitMobile(out.mobile).number) out.mobile = ''
   return out
 }
 
 export function validateDoctor(form) {
   if (!String(form.name || '').trim()) return 'Please enter your name.'
+  const mobile = splitMobile(form.mobile).number
+  if (mobile && mobile.length !== 10) return 'Mobile number must be 10 digits.'
   if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     return 'That email address does not look right.'
   }
