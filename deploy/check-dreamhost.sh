@@ -61,22 +61,36 @@ echo "2. Apache vhost (asked directly, bypassing DNS)"
 if [ -z "$VPS_IP" ]; then
   no "could not resolve $DH_HOST, skipping"
 else
-  body=$(curl -s -m 20 -k --resolve "$DOMAIN:443:$VPS_IP" "https://$DOMAIN/" 2>/dev/null)
-  if printf '%s' "$body" | grep -q 'Site not found'; then
-    no "Apache still serves its catch-all — the vhost is not active yet"
-    info "DreamHost allows up to 15 minutes after adding a site. Re-run this."
-  elif printf '%s' "$body" | grep -q 'id="root"'; then
-    ok "the app is being served"
-    code=$(curl -s -o /dev/null -m 20 -k --resolve "$DOMAIN:443:$VPS_IP" \
-      -w '%{http_code}' "https://$DOMAIN/zzzzzzzzzz" 2>/dev/null) || true
-    if [ "${code:-000}" = "200" ]; then
-      ok "SPA fallback works (/zzzzzzzzzz -> 200)"
-    else
-      no "SPA fallback not working (/zzzzzzzzzz -> ${code:-000}) — check .htaccess"
-    fi
+  # Test HTTP, not HTTPS. Until a certificate is issued there is no :443
+  # vhost, so HTTPS falls through to DreamHost's catch-all and looks exactly
+  # like a missing site even when the site is fine. Our .htaccess redirecting
+  # to https with the path preserved proves the vhost and our files are live.
+  loc=$(curl -s -I -m 20 --resolve "$DOMAIN:80:$VPS_IP" "http://$DOMAIN/zzzzzzzzzz" 2>/dev/null |
+    awk 'tolower($1) == "location:" {print $2}' | tr -d '\r')
+
+  if [ "$loc" = "https://$DOMAIN/zzzzzzzzzz" ]; then
+    ok "vhost is live and our .htaccess is being applied"
   else
-    no "unexpected response from the vhost"
-    info "$(printf '%s' "$body" | head -c 120)"
+    body=$(curl -s -m 20 --resolve "$DOMAIN:80:$VPS_IP" "http://$DOMAIN/" 2>/dev/null)
+    if printf '%s' "$body" | grep -q 'Site not found'; then
+      no "Apache serves its catch-all — the vhost is not active yet"
+      info "DreamHost allows up to 15 minutes after adding a site."
+    else
+      no "vhost responded unexpectedly; redirect was: ${loc:-none}"
+    fi
+  fi
+
+  # HTTPS needs the certificate, which cannot be issued until DNS points here.
+  https_body=$(curl -s -m 20 -k --resolve "$DOMAIN:443:$VPS_IP" "https://$DOMAIN/" 2>/dev/null)
+  https_code=$(curl -s -o /dev/null -m 20 -k --resolve "$DOMAIN:443:$VPS_IP" \
+    -w '%{http_code}' "https://$DOMAIN/zzzzzzzzzz" 2>/dev/null) || true
+  if printf '%s' "$https_body" | grep -q 'Site not found'; then
+    no "no HTTPS certificate yet — port 443 falls through to the catch-all"
+    info "Add Let's Encrypt in the panel AFTER DNS resolves to the VPS."
+  elif [ "${https_code:-000}" = "200" ]; then
+    ok "HTTPS serving, SPA fallback works (/zzzzzzzzzz -> 200)"
+  else
+    no "HTTPS answered ${https_code:-000}"
   fi
 fi
 echo
