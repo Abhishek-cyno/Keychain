@@ -9,6 +9,13 @@ RewriteEngine On
 # ---- HTTPS ----------------------------------------------------------------
 # NFC taps open the URL in the phone's browser. Plain HTTP shows a "Not
 # secure" warning to whoever is holding the keychain, so redirect first.
+#
+# Let's Encrypt validates over plain HTTP by fetching a token under
+# /.well-known/acme-challenge/. Redirecting that to HTTPS is the classic
+# chicken-and-egg: no certificate can be issued because the check is bounced
+# to a port that has no certificate yet. Excluded here so renewals cannot
+# deadlock, whoever is driving them.
+RewriteCond %{REQUEST_URI} !^/\.well-known/
 RewriteCond %{HTTPS} !=on
 RewriteCond %{HTTP:X-Forwarded-Proto} !https
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
@@ -18,6 +25,7 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 # None of those exist on disk, so without this fallback Apache returns 404
 # before React ever loads. Real files and directories are served normally,
 # which is what keeps /assets/... working.
+RewriteCond %{REQUEST_URI} !^/\.well-known/
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ /index.html [L]
