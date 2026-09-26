@@ -81,6 +81,33 @@ if ! grep -rq 'script.google.com' web/dist/assets/; then
   exit 1
 fi
 
+# A URL being present is not the same as it working. A wrong or retired /exec
+# URL builds and deploys perfectly, then every keychain shows an error — so
+# ask the API for a real answer before shipping it.
+API=$(grep -E '^VITE_API_BASE=' web/.env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+if [ -n "$API" ] && [ "$API" != "mock" ]; then
+  echo "==> Checking the API answers"
+  probe=$(curl -sL --max-time 40 "$API?action=list&limit=1&_=$(date +%s)" 2>/dev/null || true)
+  case "$probe" in
+    '{"ok":true'*)
+      total=$(printf '%s' "$probe" | sed -n 's/.*"total":\([0-9]*\).*/\1/p')
+      echo "    OK — ${total:-?} keychains"
+      ;;
+    '{"ok":false'*)
+      echo "The API replied with an error:" >&2
+      printf '  %s\n' "$(printf '%s' "$probe" | head -c 200)" >&2
+      exit 1
+      ;;
+    *)
+      echo "The Apps Script URL in web/.env did not return JSON." >&2
+      echo "A 404 means no deployment exists at that ID; an HTML sign-in page" >&2
+      echo "means the web app is not shared with 'Anyone'." >&2
+      printf '  got: %s\n' "$(printf '%s' "${probe:-<empty>}" | head -c 160)" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 echo "==> Checking the remote"
 "${SSH[@]}" "$TARGET" "test -d '$DH_PATH'" || {
   echo "Remote directory '$DH_PATH' does not exist under the home directory." >&2
