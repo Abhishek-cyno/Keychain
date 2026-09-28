@@ -41,13 +41,30 @@ jobs:
           # into the bundle as part of the URL.
           VITE_API_BASE_RAW: ${{ vars.VITE_API_BASE }}
           VITE_PUBLIC_ORIGIN_RAW: ${{ vars.VITE_PUBLIC_ORIGIN }}
+          VITE_SUPABASE_URL_RAW: ${{ vars.VITE_SUPABASE_URL }}
+          # A variable, not a secret, and deliberately so: the anon key is
+          # public by design and ships in the bundle. Storing it as a secret
+          # would only mean GitHub masking it in the logs, which makes the
+          # preflight below useless without protecting anything.
+          VITE_SUPABASE_ANON_KEY_RAW: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
-          # URLs contain no whitespace, so deleting all of it is safe here.
+          # URLs and JWTs contain no whitespace, so deleting all of it is safe.
           export VITE_API_BASE="$(printf '%s' "${VITE_API_BASE_RAW:-}" | tr -d '[:space:]')"
           export VITE_PUBLIC_ORIGIN="$(printf '%s' "${VITE_PUBLIC_ORIGIN_RAW:-}" | tr -d '[:space:]')"
-          echo "VITE_API_BASE      = [${VITE_API_BASE}]"
-          echo "VITE_PUBLIC_ORIGIN = [${VITE_PUBLIC_ORIGIN}]"
+          export VITE_SUPABASE_URL="$(printf '%s' "${VITE_SUPABASE_URL_RAW:-}" | tr -d '[:space:]')"
+          export VITE_SUPABASE_ANON_KEY="$(printf '%s' "${VITE_SUPABASE_ANON_KEY_RAW:-}" | tr -d '[:space:]')"
+
+          # The origin only. Both db.js and Sync.gs append /rest/v1/rpc, so a
+          # trailing /rest/v1 produces /rest/v1/rest/v1/rpc and every call 404s.
+          VITE_SUPABASE_URL="${VITE_SUPABASE_URL%/}"
+          VITE_SUPABASE_URL="${VITE_SUPABASE_URL%/rest/v1}"
+          export VITE_SUPABASE_URL
+
+          echo "VITE_API_BASE       = [${VITE_API_BASE}]"
+          echo "VITE_PUBLIC_ORIGIN  = [${VITE_PUBLIC_ORIGIN}]"
+          echo "VITE_SUPABASE_URL   = [${VITE_SUPABASE_URL}]"
+          echo "VITE_SUPABASE_ANON_KEY length = ${#VITE_SUPABASE_ANON_KEY}"
           npm run build
 
       # Each of these ships a broken site that still returns HTTP 200.
@@ -75,6 +92,20 @@ jobs:
             echo "::error::No Apps Script URL in the bundle. Set the VITE_API_BASE repository variable, or this deploys in mock mode."
             exit 1
           fi
+
+          # The read path. Without it every tap falls back to Apps Script and
+          # takes 1.25-2.5s instead of ~50ms — a silent regression that still
+          # returns HTTP 200, and exactly what this database exists to prevent.
+          # Failing here leaves the currently-deployed site alone, which is the
+          # safe outcome.
+          if ! grep -rq 'supabase.co' dist/assets/; then
+            echo "::error::No database URL in the bundle. Set the VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY repository variables (Settings > Secrets and variables > Actions > Variables), or this deploy would make every tap slow again."
+            exit 1
+          fi
+
+          # The anon key is meant to ship. The service_role key is not, and the
+          # two look alike on the same dashboard page.
+          node ../deploy/check-bundle-keys.js dist
 
           echo "Bundle looks deployable:"
           ls -la dist dist/assets

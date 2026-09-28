@@ -26,10 +26,11 @@ the ops team searches by — but it is not a URL.
 | Path | What it is |
 | --- | --- |
 | `web/` | React SPA — the card, the claim form, and the staff admin |
-| `apps-script/` | The API: one Apps Script web app in front of a Google Sheet |
+| `db/` | Postgres schema — the read path; the app may call exactly one function |
+| `apps-script/` | The Google Sheet API, and the one-way mirror into Postgres |
 | `tools/` | Batch generator for QR images, NFC URL lists and a printable QA sheet |
 | `deploy/` | DreamHost hosting config and deploy scripts |
-| `docs/` | Migration guide, event runbook, NFC encoding, CI/CD |
+| `docs/` | Database + sync, migration guide, event runbook, NFC encoding, CI/CD |
 
 ## Getting it running
 
@@ -74,13 +75,30 @@ Already running an older build? [`docs/MIGRATION-SELF-SERVICE.md`](docs/MIGRATIO
                            │
               React Router  /:slug
                            │
-                  Apps Script web app
-                           │
-                    Google Sheet row
+                    Postgres  ~65ms
+              (Supabase, Mumbai region)
                            │
         ┌──────────────────┴──────────────────┐
    unclaimed → claim form            claimed → card
+
+
+   claims and staff edits              one way, never back
+   ──────────────────────>  Google Sheet  ──────────>  Postgres
+        (Apps Script)        the record          the fast read copy
 ```
+
+Reads come from Postgres because Apps Script cannot be fast: `/exec` answers
+with a 302 to a single-use `googleusercontent.com` URL, so each read costs two
+connections plus a cold start — measured at 1.25–2.5s — and cannot be cached,
+because replaying that redirect 404s. Through Postgres the same read is 55–72ms.
+
+**Every write still goes through Apps Script into the Google Sheet**, which is
+the record for 500 keychains already in circulation. `apps-script/Sync.gs`
+copies the sheet into Postgres one way and never writes to the sheet, so a wrong
+database cannot damage the record — it gets repaired from it instead. If
+Postgres is ever unreachable the app falls back to Apps Script automatically:
+slower, but a keychain somebody is holding still works. See
+[docs/DATABASE.md](docs/DATABASE.md).
 
 Nothing on the server is per-keychain. One route, one `.htaccess` fallback; 500
 keychains or 50,000 makes no difference.
@@ -119,20 +137,24 @@ and email no — those need the password.
 | `ACTIVE` | claimed | the card |
 | `BLOCKED` | lost, withdrawn, or disputed | "currently unavailable" |
 
-## Moving off Google Sheets later
+## Where the data lives
 
 `web/src/lib/api.js` is the only file in the frontend that knows where data
-comes from. Swapping Sheets for Node + Postgres means answering the same shapes
-and changing `VITE_API_BASE`. The public URL structure does not change, so no
-keychain in anyone's pocket is affected.
+comes from. It reads from Postgres (`web/src/lib/db.js`) and falls back to Apps
+Script, so either backend can be replaced without touching a page component. The
+public URL structure does not change either way, so no keychain in anyone's
+pocket is affected.
 
 ## Known limits
 
 - `/admin` needs no password to **view**. It shows no contact details, but it
   does list names, organisations and codes. Putting the whole panel behind the
   password is a small change if you want it.
-- Apps Script quotas are generous for hundreds of claims but are not a CDN.
-  Public reads are cached 60s (5s while unclaimed, so a claim shows up at once).
+- A correction typed straight into the Sheet reaches the cards in seconds (an
+  onEdit trigger), or within 5 minutes worst case. Claims and `/admin` edits are
+  mirrored immediately, in the same request that writes them.
+- `apps-script/Sync.gs` never writes to the Sheet. If the database and the Sheet
+  disagree, the Sheet wins and the database is repaired from it.
 - There is no rate limit on claiming. The code's unguessability is the only
   thing stopping automated claiming, which is adequate for codes that are never
   published.

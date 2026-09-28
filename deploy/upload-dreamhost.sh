@@ -81,31 +81,41 @@ if ! grep -rq 'script.google.com' web/dist/assets/; then
   exit 1
 fi
 
-# A URL being present is not the same as it working. A wrong or retired /exec
-# URL builds and deploys perfectly, then every keychain shows an error — so
-# ask the API for a real answer before shipping it.
-API=$(grep -E '^VITE_API_BASE=' web/.env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
-if [ -n "$API" ] && [ "$API" != "mock" ]; then
-  echo "==> Checking the API answers"
-  probe=$(curl -sL --max-time 40 "$API?action=list&limit=1&_=$(date +%s)" 2>/dev/null || true)
-  case "$probe" in
-    '{"ok":true'*)
-      total=$(printf '%s' "$probe" | sed -n 's/.*"total":\([0-9]*\).*/\1/p')
-      echo "    OK — ${total:-?} keychains"
-      ;;
-    '{"ok":false'*)
-      echo "The API replied with an error:" >&2
-      printf '  %s\n' "$(printf '%s' "$probe" | head -c 200)" >&2
-      exit 1
+# A privileged key in a public bundle cannot be walked back. See the script.
+if ! node deploy/check-bundle-keys.js web/dist; then
+  exit 1
+fi
+
+# Same reasoning as the Apps Script check above, for the read path. A wrong or
+# paused Supabase project builds and deploys perfectly, and then every tap
+# quietly falls back to the 1.25-2.5s Apps Script path — the exact problem this
+# was built to fix, invisible unless somebody times it.
+DB_URL=$(grep -E '^VITE_SUPABASE_URL=' web/.env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+DB_KEY=$(grep -E '^VITE_SUPABASE_ANON_KEY=' web/.env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+
+if [ -n "$DB_URL" ] && [ -n "$DB_KEY" ]; then
+  echo "==> Checking the database answers"
+  # get_card, because it is the only function the browser key may call. Asking
+  # for a code that cannot exist proves the function, the table and the grants
+  # are all working without needing to know a real slug.
+  db=$(curl -s --max-time 30 -X POST "$DB_URL/rest/v1/rpc/get_card" \
+    -H "apikey: $DB_KEY" -H "Authorization: Bearer $DB_KEY" \
+    -H 'Content-Type: application/json' -d '{"p_slug":"zzzzzzzzzz"}' 2>/dev/null || true)
+  case "$db" in
+    *NOT_FOUND*)
+      echo "    OK — the read path is live"
       ;;
     *)
-      echo "The Apps Script URL in web/.env did not return JSON." >&2
-      echo "A 404 means no deployment exists at that ID; an HTML sign-in page" >&2
-      echo "means the web app is not shared with 'Anyone'." >&2
-      printf '  got: %s\n' "$(printf '%s' "${probe:-<empty>}" | head -c 160)" >&2
+      echo "The database did not answer as expected. Taps would fall back to" >&2
+      echo "Apps Script and take 1.25-2.5s each, which is what this exists to avoid." >&2
+      echo "  got: $(printf '%s' "${db:-<empty>}" | head -c 200)" >&2
+      echo "Run: bash deploy/check-database.sh" >&2
       exit 1
       ;;
   esac
+else
+  echo "==> No database configured — taps will use the slow Apps Script path."
+  echo "    See docs/DATABASE.md."
 fi
 
 echo "==> Checking the remote"
