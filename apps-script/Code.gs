@@ -271,6 +271,7 @@ function claimKeychain(rawSlug, doctor) {
 
     writeDoctor(row, current, input, 'ACTIVE')
     invalidateSlug(slug)
+    mirrorToDatabase([current.ID])
 
     // Give back the public shape, so the app can show the finished card
     // immediately without a second round trip.
@@ -368,6 +369,7 @@ function updateKeychain(rawId, doctor) {
 
     writeDoctor(row, current, doctor || {}, next)
     invalidateSlug(current.Slug)
+    mirrorToDatabase([id])
 
     return toAdminObject(rowToObject(findRowById(id).values))
   } finally {
@@ -390,6 +392,7 @@ function setKeychainStatus(rawId, rawStatus) {
     var sheet = getSheet()
     sheet.getRange(row.index, columnIndex('Status')).setValue(status)
     sheet.getRange(row.index, columnIndex('UpdatedAt')).setValue(nowIso())
+    mirrorToDatabase([id])
 
     invalidateSlug(rowToObject(row.values).Slug)
     return { id: id, status: status }
@@ -430,6 +433,9 @@ function releaseKeychain(rawId) {
     sheet.getRange(row.index, 1, 1, COLUMNS.length).setValues([values])
 
     invalidateSlug(oldSlug)
+    // The slug itself changed here. Until the mirror knows, the retired code
+    // would still resolve to the old card on a tap.
+    mirrorToDatabase([id])
     return { id: id, status: 'AVAILABLE', slug: values[columnIndex('Slug') - 1] }
   } finally {
     lock.releaseLock()
@@ -477,6 +483,14 @@ function seedKeychains(rawCount) {
 
     if (pending.length) {
       sheet.getRange(sheet.getLastRow() + 1, 1, pending.length, COLUMNS.length).setValues(pending)
+
+      // New keychains are useless until their codes resolve, and these go
+      // straight to a printer.
+      var fresh = []
+      for (var n = 0; n < pending.length; n++) {
+        fresh.push(pending[n][columnIndex('ID') - 1])
+      }
+      mirrorToDatabase(fresh)
     }
 
     return { created: pending.length, total: Object.keys(existing).length + pending.length }
@@ -521,6 +535,30 @@ function writeDoctor(row, current, input, status) {
 function capped(value, field) {
   var limit = FIELD_LIMITS[field] || 200
   return trim(value).substring(0, limit)
+}
+
+/**
+ * Mirror a row into Postgres straight after writing it here.
+ *
+ * The web app resolves a tapped keychain from Postgres, so without this a
+ * doctor finishes the setup form, taps their keychain, and is shown the setup
+ * form again — the sheet knows about them, the database does not yet.
+ *
+ * Deliberately tolerant of Sync.gs being absent: Code.gs has to keep working on
+ * its own, which is how it ran before there was a database and how it will run
+ * if the sync is ever removed.
+ *
+ * Never allowed to fail a write. The sheet is the record; if the mirror cannot
+ * be updated the scheduled pass will catch it up, and reporting an error to
+ * somebody whose card was in fact created would be worse than being late.
+ */
+function mirrorToDatabase(ids) {
+  try {
+    if (typeof syncRowsToDatabase !== 'function') return
+    syncRowsToDatabase(ids)
+  } catch (err) {
+    Logger.log('mirrorToDatabase: ' + err)
+  }
 }
 
 function getSheet() {
