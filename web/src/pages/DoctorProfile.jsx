@@ -121,7 +121,7 @@ function ProfileCard({ doctor }) {
   const details = buildDetails(doctor)
 
   return (
-    <article className="profile-card flex flex-1 flex-col overflow-hidden rounded-b-[28px] rounded-t-none bg-white shadow-xl shadow-brand-900/20 sm:rounded-[28px]">
+    <article className="profile-card flex flex-1 flex-col overflow-hidden rounded-[28px] bg-white shadow-xl shadow-brand-900/20">
       <CoverWave />
 
       {/* relative, or the wave above paints over this: a positioned element
