@@ -11,9 +11,10 @@ import BrandFooter from './BrandFooter.jsx'
  * exactly the height of that bar. dvh tracks the space actually visible.
  * min-h-screen stays in front of it as the fallback.
  *
- * 10px of vertical padding and a column that grows: the card fills the screen
- * bar a thin margin, rather than floating in it. Spare height is absorbed
- * inside the card instead of collecting above or below it.
+ * 10px above, 30px below, and a column that grows: the card fills the screen
+ * bar a thin margin, rather than floating in it. The extra room underneath
+ * keeps the footer clear of a phone's home indicator. Spare height is absorbed
+ * inside the card rather than collecting above or below it.
  *
  * The background stays blue all the way down. It used to fade to near-white,
  * which turned any leftover space into a pale band that read as the page
@@ -22,7 +23,7 @@ import BrandFooter from './BrandFooter.jsx'
 export function Shell({ children }) {
   return (
     <div className="flex min-h-screen min-h-dvh flex-col bg-gradient-to-b from-brand-600 via-brand-700 to-brand-800">
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-[10px]">{children}</div>
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 pb-[30px] pt-[10px]">{children}</div>
     </div>
   )
 }
