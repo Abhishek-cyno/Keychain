@@ -5,10 +5,16 @@ import BrandFooter from './BrandFooter.jsx'
  * notice. Shared so the three outcomes of a tap look like one product.
  */
 
+/**
+ * min-h-dvh rather than min-h-screen: 100vh on a phone measures the viewport
+ * WITHOUT the browser's address bar, so anything sized to it overflows by
+ * exactly the height of that bar. dvh tracks the space actually visible.
+ * min-h-screen stays in front of it as the fallback.
+ */
 export function Shell({ children }) {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-brand-700 via-brand-600 to-slate-50">
-      <div className="mx-auto w-full max-w-md px-4 pb-10 pt-8">{children}</div>
+    <div className="min-h-screen min-h-dvh bg-gradient-to-b from-brand-700 via-brand-600 to-slate-50">
+      <div className="mx-auto w-full max-w-md px-4 pb-5 pt-5">{children}</div>
     </div>
   )
 }

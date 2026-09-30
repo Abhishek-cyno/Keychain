@@ -17,7 +17,7 @@ const SITE = 'https://www.eqova.in'
  */
 export default function BrandFooter({ className = '' }) {
   return (
-    <footer className={`px-6 py-4 text-center ${className}`}>
+    <footer className={`px-6 py-3 text-center ${className}`}>
       <p className="flex items-center justify-center gap-2 text-[13px] leading-none text-slate-500">
         <img src={mark} alt="" width="96" height="120" className="h-[17px] w-auto" />
         <span>
@@ -25,7 +25,7 @@ export default function BrandFooter({ className = '' }) {
         </span>
       </p>
 
-      <p className="mt-2 text-[11px] leading-none text-slate-500">
+      <p className="mt-1.5 text-[11px] leading-none text-slate-500">
         We make medicines
         <span className="px-0.5 text-slate-300">·</span>
         <a

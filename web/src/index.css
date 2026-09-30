@@ -37,3 +37,47 @@
     @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Short screens.
+ *
+ * The card is sized for a large phone with no browser chrome. Every other
+ * case is shorter: a 390x844 iPhone showing its address bar is ~750px, and a
+ * small Android is 640px. At those heights the full-size layout overflowed by
+ * enough to hide the Save Contact button, which makes the card feel broken
+ * rather than merely long.
+ *
+ * 800px, not 740: 750 is the common real-world height and sat in the gap.
+ *
+ * Height media queries rather than width: the constraint is vertical, and a
+ * short landscape window has the same problem as a small portrait one.
+ *
+ * A card with every field filled still scrolls, and should — there is no
+ * honest way to fit unbounded content — but it now takes six fields to get
+ * there instead of three.
+ * ------------------------------------------------------------------------ */
+@media (max-height: 800px) {
+  .profile-card .pc-cover { height: 96px; }
+  .profile-card .pc-wave { height: 58px; }
+  .profile-card .pc-head { margin-top: -46px; }
+  .profile-card .pc-avatar {
+    height: 74px;
+    width: 74px;
+    font-size: 25px;
+    border-width: 3px;
+  }
+  .profile-card .pc-name { margin-top: 0.5rem; font-size: 21px; }
+  .profile-card .pc-quick { padding-top: 0.75rem; }
+  .profile-card .pc-tile { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  .profile-card .pc-row { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+  .profile-card .pc-save { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+}
+
+@media (max-height: 620px) {
+  .profile-card .pc-cover { height: 80px; }
+  .profile-card .pc-wave { height: 46px; }
+  .profile-card .pc-head { margin-top: -38px; }
+  .profile-card .pc-avatar { height: 62px; width: 62px; font-size: 21px; }
+  .profile-card .pc-name { font-size: 19px; }
+  .profile-card .pc-row { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+}

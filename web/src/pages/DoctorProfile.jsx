@@ -121,33 +121,33 @@ function ProfileCard({ doctor }) {
   const details = buildDetails(doctor)
 
   return (
-    <article className="overflow-hidden rounded-[28px] bg-white shadow-xl shadow-brand-900/20">
+    <article className="profile-card overflow-hidden rounded-[28px] bg-white shadow-xl shadow-brand-900/20">
       <CoverWave />
 
       {/* relative, or the wave above paints over this: a positioned element
           outranks a later static sibling in CSS painting order, whatever the
           DOM order says. */}
-      <div className="relative -mt-[72px] px-6 text-center">
+      <div className="pc-head relative -mt-[58px] px-6 text-center">
         <Avatar name={doctor.name} />
 
-        <h1 className="mt-4 text-[26px] font-bold leading-tight tracking-tight text-slate-900">
+        <h1 className="pc-name mt-3 text-[23px] font-bold leading-tight tracking-tight text-slate-900">
           {[doctor.title, doctor.name].filter(Boolean).join(' ')}
         </h1>
 
         {doctor.designation && (
-          <p className="mt-1.5 text-[17px] font-bold leading-snug text-brand-600">
+          <p className="mt-1 text-[15px] font-bold leading-snug text-brand-600">
             {doctor.designation}
           </p>
         )}
 
         {doctor.organization && (
-          <p className="mt-1.5 text-[15px] leading-relaxed text-slate-500">{doctor.organization}</p>
+          <p className="mt-1 text-[14px] leading-snug text-slate-500">{doctor.organization}</p>
         )}
       </div>
 
       {quick.length > 0 && (
         <div
-          className="grid gap-3 px-6 pt-6"
+          className="pc-quick grid gap-2.5 px-5 pt-4"
           style={{ gridTemplateColumns: `repeat(${quick.length}, minmax(0, 1fr))` }}
         >
           {quick.map((action) => (
@@ -157,14 +157,14 @@ function ProfileCard({ doctor }) {
       )}
 
       {details.length > 0 && (
-        <div className="mt-6 divide-y divide-slate-100 border-t border-slate-100">
+        <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
           {details.map((row) => (
             <DetailRow key={row.label + row.value} {...row} />
           ))}
         </div>
       )}
 
-      <div className="border-t border-slate-100 px-6 py-6">
+      <div className="pc-save border-t border-slate-100 px-5 py-4">
         <SaveContactButton doctor={doctor} />
       </div>
 
@@ -174,29 +174,32 @@ function ProfileCard({ doctor }) {
 }
 
 /**
- * The header. Two offset curves rather than one, because a single arc reads as
- * a stray rounded corner at phone width — the second, paler one behind it is
- * what makes it look deliberate.
+ * The header.
  *
- * preserveAspectRatio="none" lets the curve stretch to any width without
- * changing its height, so the avatar always overlaps it by the same amount.
+ * Two curves, not one: a pale wedge that widens left to right, and the white
+ * body rising underneath it. A single arc reads as a stray rounded corner at
+ * phone width — the second layer is what makes it look intended.
+ *
+ * preserveAspectRatio="none" lets the curves stretch to any width without
+ * changing their height, so the avatar overlaps by the same amount on every
+ * screen.
  */
 function CoverWave() {
   return (
-    <div className="relative h-[150px] bg-gradient-to-br from-brand-500 via-brand-600 to-brand-600">
+    <div className="pc-cover relative h-[118px] bg-gradient-to-br from-brand-500 via-brand-500 to-brand-600">
       <svg
-        className="absolute inset-x-0 bottom-0 h-[58px] w-full"
-        viewBox="0 0 400 58"
+        className="pc-wave absolute inset-x-0 bottom-0 h-[72px] w-full"
+        viewBox="0 0 400 80"
         preserveAspectRatio="none"
         aria-hidden="true"
       >
         <path
-          d="M0 20 C 88 52, 168 2, 258 14 C 330 24, 368 16, 400 6 L400 58 L0 58 Z"
+          d="M0 42 C 80 26, 150 41, 230 31 C 300 22, 356 12, 400 5 L400 80 L0 80 Z"
           fill="#ffffff"
-          fillOpacity="0.18"
+          fillOpacity="0.17"
         />
         <path
-          d="M0 34 C 88 66, 168 14, 258 26 C 330 36, 368 28, 400 19 L400 58 L0 58 Z"
+          d="M0 50 C 80 63, 170 52, 250 58 C 320 63, 362 66, 400 69 L400 80 L0 80 Z"
           fill="#ffffff"
         />
       </svg>
@@ -215,7 +218,7 @@ function Avatar({ name }) {
     .toUpperCase()
 
   return (
-    <div className="mx-auto grid h-[116px] w-[116px] place-items-center rounded-full border-[5px] border-white bg-brand-50 text-[38px] font-bold tracking-wide text-brand-700 shadow-lg shadow-brand-900/10">
+    <div className="pc-avatar mx-auto grid h-[92px] w-[92px] place-items-center rounded-full border-4 border-white bg-brand-50 text-[30px] font-bold tracking-wide text-brand-700 shadow-lg shadow-brand-900/10">
       {initials || '?'}
     </div>
   )
@@ -229,10 +232,10 @@ function QuickAction({ href, label, icon, tint, external }) {
     <a
       href={href}
       {...externalProps}
-      className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 px-1 py-4 transition hover:bg-slate-100 active:scale-[0.97]"
+      className="pc-tile flex flex-col items-center gap-1.5 rounded-2xl bg-slate-50 px-1 py-3 transition hover:bg-slate-100 active:scale-[0.97]"
     >
       <span className={tint}>{icon}</span>
-      <span className="text-[15px] font-semibold text-slate-700">{label}</span>
+      <span className="text-[14px] font-semibold text-slate-700">{label}</span>
     </a>
   )
 }
@@ -240,11 +243,11 @@ function QuickAction({ href, label, icon, tint, external }) {
 function DetailRow({ href, label, value, icon, external, multiline }) {
   const body = (
     <>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
         {icon}
       </span>
       <span className="min-w-0 flex-1 text-left">
-        <span className="block text-[13px] text-slate-400">{label}</span>
+        <span className="block text-[12px] leading-tight text-slate-400">{label}</span>
         <span
           className={`block break-words text-[15px] font-semibold leading-snug text-slate-800 ${
             multiline ? 'whitespace-pre-line' : ''
@@ -270,7 +273,7 @@ function DetailRow({ href, label, value, icon, external, multiline }) {
 
   // An address is not a link, so it must not look tappable or animate on press.
   if (!href) {
-    return <div className="flex items-center gap-3.5 px-5 py-4">{body}</div>
+    return <div className="pc-row flex items-center gap-3.5 px-5 py-2.5">{body}</div>
   }
 
   const externalProps = external ? { target: '_blank', rel: 'noopener noreferrer' } : {}
@@ -278,7 +281,7 @@ function DetailRow({ href, label, value, icon, external, multiline }) {
     <a
       href={href}
       {...externalProps}
-      className="flex items-center gap-3.5 px-5 py-4 transition hover:bg-slate-50 active:bg-slate-100"
+      className="pc-row flex items-center gap-3.5 px-5 py-2.5 transition hover:bg-slate-50 active:bg-slate-100"
     >
       {body}
     </a>
@@ -325,7 +328,7 @@ function SaveContactButton({ doctor }) {
     <button
       type="button"
       onClick={save}
-      className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-brand-600 px-4 py-4 text-[17px] font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-700 active:scale-[0.99]"
+      className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-brand-600 px-4 py-3.5 text-[16px] font-semibold text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-700 active:scale-[0.99]"
     >
       <svg
         className="h-5 w-5"
@@ -394,17 +397,17 @@ const icons = {
    icon looks thin next to the solid WhatsApp mark. */
 const quickIcons = {
   call: (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true">
       <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.2.4 2.4.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.4 0 .8-.2 1l-2.3 2.2Z" />
     </svg>
   ),
   whatsapp: (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true">
       <path d="M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2.05 22l5.3-1.38a9.86 9.86 0 0 0 4.69 1.19h.004c5.45 0 9.9-4.44 9.9-9.9 0-2.64-1.03-5.13-2.9-7a9.82 9.82 0 0 0-7-2.9Zm0 18.13h-.003a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.1.81.83-3.03-.2-.31a8.17 8.17 0 0 1-1.25-4.37c0-4.53 3.69-8.22 8.22-8.22 2.2 0 4.26.86 5.81 2.42a8.17 8.17 0 0 1 2.41 5.81c0 4.53-3.69 8.22-8.22 8.22Zm4.5-6.16c-.24-.12-1.46-.72-1.69-.8-.22-.09-.39-.13-.55.12-.17.25-.64.8-.78.97-.15.16-.29.19-.53.06-.25-.12-1.04-.38-1.99-1.22-.73-.66-1.23-1.46-1.37-1.71-.15-.25-.02-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.09-.17.04-.31-.02-.43-.06-.13-.55-1.34-.76-1.83-.2-.48-.4-.42-.55-.42h-.47c-.16 0-.43.06-.66.31-.22.25-.86.84-.86 2.06s.89 2.39 1.01 2.56c.12.16 1.74 2.66 4.22 3.73.59.25 1.05.4 1.41.52.59.19 1.13.16 1.56.1.47-.07 1.46-.6 1.67-1.18.2-.57.2-1.07.14-1.17-.06-.11-.22-.17-.46-.29Z" />
     </svg>
   ),
   mail: (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true">
       <path d="M4 4h16a2 2 0 0 1 2 2v.35l-10 5.9-10-5.9V6a2 2 0 0 1 2-2Zm18 4.67V18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.67l9.49 5.6a1 1 0 0 0 1.02 0L22 8.67Z" />
     </svg>
   ),
