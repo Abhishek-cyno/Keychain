@@ -121,7 +121,7 @@ function ProfileCard({ doctor }) {
   const details = buildDetails(doctor)
 
   return (
-    <article className="profile-card overflow-hidden rounded-[28px] bg-white shadow-xl shadow-brand-900/20">
+    <article className="profile-card flex flex-1 flex-col overflow-hidden rounded-b-[28px] rounded-t-none bg-white shadow-xl shadow-brand-900/20 sm:rounded-[28px]">
       <CoverWave />
 
       {/* relative, or the wave above paints over this: a positioned element
@@ -164,7 +164,9 @@ function ProfileCard({ doctor }) {
         </div>
       )}
 
-      <div className="pc-save border-t border-slate-100 px-5 py-4">
+      <div className="flex-1" />
+
+      <div className="pc-save px-5 py-4">
         <SaveContactButton doctor={doctor} />
       </div>
 

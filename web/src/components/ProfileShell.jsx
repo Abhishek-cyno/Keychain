@@ -11,11 +11,9 @@ import BrandFooter from './BrandFooter.jsx'
  * exactly the height of that bar. dvh tracks the space actually visible.
  * min-h-screen stays in front of it as the fallback.
  *
- * `m-auto` on a flex child, not `justify-center`: it centres the card when
- * there is room to spare, so leftover space is shared top and bottom instead
- * of pooling under the card — and unlike justify-center it does not clip the
- * top of content that is taller than the screen, which is what the claim form
- * is on a small phone.
+ * No vertical padding, and the inner column grows: the card reaches the top
+ * and bottom edges rather than floating with space around it. Spare height is
+ * absorbed inside the card instead of collecting above or below it.
  *
  * The background stays blue all the way down. It used to fade to near-white,
  * which turned any leftover space into a pale band that read as the page
@@ -24,7 +22,7 @@ import BrandFooter from './BrandFooter.jsx'
 export function Shell({ children }) {
   return (
     <div className="flex min-h-screen min-h-dvh flex-col bg-gradient-to-b from-brand-600 via-brand-700 to-brand-800">
-      <div className="m-auto w-full max-w-md px-4 py-5">{children}</div>
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4">{children}</div>
     </div>
   )
 }
