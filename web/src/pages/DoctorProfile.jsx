@@ -121,7 +121,7 @@ function ProfileCard({ doctor }) {
   const details = buildDetails(doctor)
 
   return (
-    <article className="profile-card flex flex-1 flex-col overflow-hidden rounded-[28px] bg-white shadow-xl shadow-brand-900/20">
+    <article className="profile-card overflow-hidden rounded-[28px] bg-white shadow-xl shadow-brand-900/20">
       <CoverWave />
 
       {/* relative, or the wave above paints over this: a positioned element
@@ -156,18 +156,18 @@ function ProfileCard({ doctor }) {
         </div>
       )}
 
-      {details.length > 0 && (
-        <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
-          {details.map((row) => (
-            <DetailRow key={row.label + row.value} {...row} />
-          ))}
+      <div className="mt-4 border-t border-slate-100 px-5">
+        {details.length > 0 && (
+          <div className="divide-y divide-slate-100">
+            {details.map((row) => (
+              <DetailRow key={row.label + row.value} {...row} />
+            ))}
+          </div>
+        )}
+
+        <div className="pc-save border-t border-slate-100 py-4">
+          <SaveContactButton doctor={doctor} />
         </div>
-      )}
-
-      <div className="flex-1" />
-
-      <div className="pc-save px-5 py-4">
-        <SaveContactButton doctor={doctor} />
       </div>
 
       <BrandFooter className="border-t border-slate-100 bg-slate-50" />
@@ -275,7 +275,7 @@ function DetailRow({ href, label, value, icon, external, multiline }) {
 
   // An address is not a link, so it must not look tappable or animate on press.
   if (!href) {
-    return <div className="pc-row flex items-center gap-3.5 px-5 py-2.5">{body}</div>
+    return <div className="pc-row flex items-center gap-3.5 py-3">{body}</div>
   }
 
   const externalProps = external ? { target: '_blank', rel: 'noopener noreferrer' } : {}
@@ -283,7 +283,7 @@ function DetailRow({ href, label, value, icon, external, multiline }) {
     <a
       href={href}
       {...externalProps}
-      className="pc-row flex items-center gap-3.5 px-5 py-2.5 transition hover:bg-slate-50 active:bg-slate-100"
+      className="pc-row -mx-2 flex items-center gap-3.5 rounded-xl px-2 py-3 transition hover:bg-slate-50 active:bg-slate-100"
     >
       {body}
     </a>
