@@ -60,7 +60,7 @@
  * ------------------------------------------------------------------------ */
 @media (max-height: 700px) {
   .profile-card .pc-cover { height: 96px; }
-  .profile-card .pc-wave { height: 58px; }
+  .profile-card .pc-wave { height: 100%; }
   .profile-card .pc-head { margin-top: -46px; }
   .profile-card .pc-avatar {
     height: 74px;
@@ -77,7 +77,7 @@
 
 @media (max-height: 620px) {
   .profile-card .pc-cover { height: 80px; }
-  .profile-card .pc-wave { height: 46px; }
+  .profile-card .pc-wave { height: 100%; }
   .profile-card .pc-head { margin-top: -38px; }
   .profile-card .pc-avatar { height: 62px; width: 62px; font-size: 21px; }
   .profile-card .pc-name { font-size: 19px; }

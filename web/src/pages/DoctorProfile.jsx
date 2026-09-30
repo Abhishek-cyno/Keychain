@@ -190,18 +190,18 @@ function CoverWave() {
   return (
     <div className="pc-cover relative h-[118px] bg-gradient-to-br from-brand-500 via-brand-500 to-brand-600">
       <svg
-        className="pc-wave absolute inset-x-0 bottom-0 h-[72px] w-full"
-        viewBox="0 0 400 80"
+        className="pc-wave absolute inset-0 h-full w-full"
+        viewBox="0 0 400 118"
         preserveAspectRatio="none"
         aria-hidden="true"
       >
         <path
-          d="M0 42 C 80 26, 150 41, 230 31 C 300 22, 356 12, 400 5 L400 80 L0 80 Z"
+          d="M0 59 C 46 59, 63 76, 101 96 C 135 104, 181 102, 225 100 C 282 90, 332 56, 400 22 L400 118 L0 118 Z"
           fill="#ffffff"
           fillOpacity="0.17"
         />
         <path
-          d="M0 50 C 80 63, 170 52, 250 58 C 320 63, 362 66, 400 69 L400 80 L0 80 Z"
+          d="M0 104 C 24 98, 42 94, 64 95 C 88 95, 108 101, 137 103 C 178 106, 221 104, 261 108 C 294 110, 319 116, 342 114 C 367 112, 386 104, 400 100 L400 118 L0 118 Z"
           fill="#ffffff"
         />
       </svg>
