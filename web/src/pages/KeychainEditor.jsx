@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { fetchKeychain, updateKeychain, profileUrl, getPassword } from '../lib/api.js'
+import { AVATARS_ENABLED, avatarUrl, replaceAvatar, removeAvatar } from '../lib/avatar.js'
 import Spinner from '../components/Spinner.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import PasswordPrompt from '../components/PasswordPrompt.jsx'
@@ -144,6 +145,8 @@ export default function KeychainEditor() {
         </p>
       </header>
 
+      {AVATARS_ENABLED && <PhotoSection id={record.id} slug={record.slug} />}
+
       <DoctorFields form={form} onChange={update} />
 
       <section className="card space-y-3 p-5">
@@ -179,3 +182,123 @@ export default function KeychainEditor() {
   )
 }
 
+/**
+ * The photo control on the staff editor.
+ *
+ * Saves immediately rather than on the form's Save button, and deliberately:
+ * the photo does not travel with the other fields. Those go to the sheet and
+ * mirror into Postgres; this goes to Supabase Storage and nowhere else. Tying
+ * them to one button would suggest they are one write, and a half-failure
+ * would be confusing in a way that two obvious actions are not.
+ */
+function PhotoSection({ id, slug }) {
+  const [version, setVersion] = useState(0)
+  const [present, setPresent] = useState(false)
+  const [busy, setBusy] = useState('')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
+
+  const src = avatarUrl(slug, version || undefined)
+
+  async function choose(event) {
+    const file = event.target.files && event.target.files[0]
+    event.target.value = ''
+    if (!file) return
+
+    setError('')
+    setNote('')
+    setBusy('Uploading…')
+    try {
+      await replaceAvatar(id, getPassword(), file)
+      // The filename never changes, so the browser would keep showing the old
+      // one without this.
+      setVersion(Date.now())
+      setPresent(true)
+      setNote('Photo updated.')
+    } catch (err) {
+      setError(err.message || 'Could not update the photo.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm('Remove this photo? The card falls back to initials.')) return
+
+    setError('')
+    setNote('')
+    setBusy('Removing…')
+    try {
+      await removeAvatar(id, getPassword())
+      setPresent(false)
+      setVersion(Date.now())
+      setNote('Photo removed.')
+    } catch (err) {
+      setError(err.message || 'Could not remove the photo.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <section className="card p-5">
+      <h2 className="text-sm font-semibold text-slate-900">Photo</h2>
+
+      <div className="mt-4 flex items-center gap-4">
+        <div className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-full bg-brand-50 text-xl font-bold text-brand-700">
+          <span className={present ? 'opacity-0' : ''}>—</span>
+          <img
+            src={src}
+            alt=""
+            decoding="async"
+            className={`absolute inset-0 h-full w-full rounded-full object-cover ${
+              present ? 'opacity-100' : 'opacity-0'
+            }`}
+            onLoad={() => setPresent(true)}
+            // No file for this keychain. Expected: the absence of the object is
+            // how "no photo" is stored.
+            onError={() => setPresent(false)}
+          />
+          {busy && (
+            <span className="absolute inset-0 grid place-items-center rounded-full bg-white/75">
+              <span className="h-5 w-5 animate-spin rounded-full border-[3px] border-brand-200 border-t-brand-600" />
+            </span>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary !py-2 !text-xs"
+              onClick={() => fileRef.current && fileRef.current.click()}
+              disabled={Boolean(busy)}
+            >
+              {present ? 'Replace photo' : 'Upload photo'}
+            </button>
+            {present && (
+              <button
+                type="button"
+                className="btn-danger !py-2 !text-xs"
+                onClick={remove}
+                disabled={Boolean(busy)}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            {busy || 'Saved on its own, not with the form below. Resized to 512px before upload.'}
+          </p>
+
+          {note && <p className="mt-1 text-xs font-medium text-emerald-600">{note}</p>}
+          {error && <p className="mt-1 text-xs font-medium text-red-600">{error}</p>}
+        </div>
+      </div>
+
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={choose} />
+    </section>
+  )
+}

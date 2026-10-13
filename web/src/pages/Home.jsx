@@ -11,7 +11,20 @@ export default function Home() {
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
           Tap your Eqova keychain on your phone, or scan its QR code, to open the profile it belongs to.
         </p>
+        {/* The padlock says the staff area is locked before anyone clicks it,
+            rather than letting them find out at the password prompt. */}
         <Link to="/admin" className="btn-secondary mt-6 w-full">
+          <svg
+            className="h-4 w-4 text-slate-400"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+            <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" strokeLinecap="round" />
+          </svg>
           Admin
         </Link>
       </div>

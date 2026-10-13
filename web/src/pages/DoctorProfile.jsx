@@ -5,6 +5,7 @@ import Spinner from '../components/Spinner.jsx'
 import { Shell, Notice } from '../components/ProfileShell.jsx'
 import BrandFooter from '../components/BrandFooter.jsx'
 import ClaimCard from './ClaimCard.jsx'
+import { avatarUrl } from '../lib/avatar.js'
 
 /**
  * What a tapped keychain resolves to. Exactly one of:
@@ -128,7 +129,7 @@ function ProfileCard({ doctor }) {
           outranks a later static sibling in CSS painting order, whatever the
           DOM order says. */}
       <div className="pc-head relative -mt-[58px] px-6 text-center">
-        <Avatar name={doctor.name} />
+        <Avatar slug={doctor.slug} name={doctor.name} />
 
         <h1 className="pc-name mt-3 text-[23px] font-bold leading-tight tracking-tight text-slate-900">
           {[doctor.title, doctor.name].filter(Boolean).join(' ')}
@@ -209,7 +210,20 @@ function CoverWave() {
   )
 }
 
-function Avatar({ name }) {
+/**
+ * The avatar on a finished card. Display only.
+ *
+ * A photo is chosen once, while the keychain is being set up, and not changed
+ * afterwards — so there is nothing to tap here. The storage policy enforces
+ * the same rule (db/storage.sql grants INSERT and not UPDATE), rather than
+ * leaving it to this component to decline to offer what the server would still
+ * accept.
+ *
+ * Initials show first and always. The photo is a separate request that nothing
+ * waits for, so a card with one paints at the same moment as a card without,
+ * and a 404 for a card that has none costs nothing visible.
+ */
+function Avatar({ slug, name }) {
   const initials = String(name || '')
     .replace(/^Dr\.?\s+/i, '')
     .split(/\s+/)
@@ -219,9 +233,32 @@ function Avatar({ name }) {
     .join('')
     .toUpperCase()
 
+  const [loaded, setLoaded] = useState(false)
+  const src = avatarUrl(slug)
+
+  // A different keychain is a different photo, and possibly none.
+  useEffect(() => {
+    setLoaded(false)
+  }, [slug])
+
   return (
-    <div className="pc-avatar mx-auto grid h-[92px] w-[92px] place-items-center rounded-full border-4 border-white bg-brand-50 text-[30px] font-bold tracking-wide text-brand-700 shadow-lg shadow-brand-900/10">
-      {initials || '?'}
+    <div className="pc-avatar relative mx-auto grid h-[92px] w-[92px] place-items-center overflow-hidden rounded-full border-4 border-white bg-brand-50 text-[30px] font-bold tracking-wide text-brand-700 shadow-lg shadow-brand-900/10">
+      <span className={loaded ? 'opacity-0' : ''}>{initials || '?'}</span>
+
+      {src && (
+        <img
+          src={src}
+          alt=""
+          decoding="async"
+          className={`absolute inset-0 h-full w-full rounded-full object-cover transition-opacity duration-200 ${
+            loaded ? 'opacity-100' : 'opacity-0'
+          }`}
+          onLoad={() => setLoaded(true)}
+          // No photo for this keychain. Expected, not a failure — the absence
+          // of the file is how "no photo" is stored.
+          onError={() => setLoaded(false)}
+        />
+      )}
     </div>
   )
 }

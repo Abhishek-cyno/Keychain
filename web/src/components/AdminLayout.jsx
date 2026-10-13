@@ -1,9 +1,38 @@
-import { Outlet, Link, useLocation } from 'react-router-dom'
-import { USING_MOCK } from '../lib/api.js'
+import { useState } from 'react'
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { USING_MOCK, getPassword, clearPassword } from '../lib/api.js'
+import PasswordPrompt from './PasswordPrompt.jsx'
 
-/** Wraps every /admin route. No sign-in — anyone with the URL can manage keychains. */
+/**
+ * Wraps every /admin route, behind the staff password.
+ *
+ * The gate is here rather than on each page so there is one of it. Anything
+ * added under /admin later is covered without having to remember — and the
+ * dashboard used to be reachable by URL alone, which made the password on the
+ * editor a lock on an interior door.
+ *
+ * The password is verified against the API before anything renders, not merely
+ * compared here, so a wrong one is refused by the server rather than by code
+ * sitting in the browser where anyone can read it. It is held in
+ * sessionStorage, so closing the tab locks up again.
+ */
 export default function AdminLayout() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const [locked, setLocked] = useState(() => !getPassword())
+
+  if (locked) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <PasswordPrompt
+          title="Eqova Ops"
+          body="The staff dashboard requires the password."
+          onUnlocked={() => setLocked(false)}
+          onCancel={() => navigate('/')}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -21,6 +50,18 @@ export default function AdminLayout() {
                 All keychains
               </Link>
             )}
+            {/* Shared laptops at an event: leaving the session open until the
+                tab happens to close is not good enough. */}
+            <button
+              type="button"
+              className="btn-secondary !py-2 !text-xs"
+              onClick={() => {
+                clearPassword()
+                setLocked(true)
+              }}
+            >
+              Lock
+            </button>
           </div>
         </div>
       </header>
