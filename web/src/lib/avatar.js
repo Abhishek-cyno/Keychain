@@ -50,10 +50,27 @@ const MAX_BYTES = 300 * 1024
  * the same card gets tapped repeatedly. `version` is passed only right after
  * an upload, by the one browser that needs to see past the cache.
  */
+/**
+ * How long a viewer may keep showing a photo after it has been replaced.
+ *
+ * The filename is derived from the slug, so a slug that gets reused — a card
+ * cleared and set up again by somebody else — reuses the filename too. Caching
+ * that hard means the new owner's card showing the previous owner's face, so
+ * the URL carries a coarse clock that moves every few minutes and quietly
+ * retires every cached copy.
+ */
+const CACHE_WINDOW_MS = 5 * 60 * 1000
+
 export function avatarUrl(slug, version) {
   if (!AVATARS_ENABLED || !slug) return ''
   const base = `${URL_BASE}/storage/v1/object/public/${BUCKET}/${slug}.webp`
-  return version ? `${base}?v=${version}` : base
+
+  // An explicit version is the upload path saying "show mine now, never mind
+  // the clock". Otherwise bucket by time: identical within a window, so the
+  // CDN still serves repeat taps, and different across one, so a replacement
+  // cannot be hidden for longer than that.
+  const v = version || Math.floor(Date.now() / CACHE_WINDOW_MS)
+  return `${base}?v=${v}`
 }
 
 export class AvatarError extends Error {
@@ -182,10 +199,10 @@ export async function uploadAvatar(slug, file) {
         // storage policy grants INSERT and not UPDATE — asking to overwrite
         // would be asking for a permission that deliberately does not exist,
         // and would fail the whole request rather than the overwrite.
-        // A year: the filename never changes, so a stale copy is only ever a
-        // problem for the person who just replaced it, and they get the
-        // cache-busted URL returned below.
-        'Cache-Control': 'public, max-age=31536000',
+        // Minutes, not a year. The filename is reused whenever a slug is, so
+        // a long cache is how a new owner ends up wearing the old owner's
+        // face. Repeat taps inside the window still come from the CDN.
+        'Cache-Control': 'public, max-age=300',
       },
       body: blob,
     })
@@ -292,7 +309,7 @@ export async function replaceAvatar(id, password, file) {
         // Permitted here and nowhere else: the grant just created is what the
         // UPDATE policy looks for.
         'x-upsert': 'true',
-        'Cache-Control': 'public, max-age=31536000',
+        'Cache-Control': 'public, max-age=300',
       },
       body: blob,
     })
