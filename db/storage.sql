@@ -120,6 +120,56 @@ with check (bucket_id = 'avatars' and public.avatar_name_allowed(name));
 -- the end of this file — password-checked by Postgres, with no service key in
 -- the browser.
 
+
+/* ====================== A FRESHLY SET-UP CARD ============================= */
+/*
+ * The INSERT-only rule above stops a stranger replacing a settled photo, which
+ * is what it is for. But it also stopped the legitimate new owner of a REUSED
+ * keychain: clear a card for reassignment, hand the keychain to somebody else,
+ * and their upload is refused with 409 because the previous owner's file still
+ * holds the name. Their photo goes nowhere and the card keeps showing a
+ * stranger's face.
+ *
+ * So a card may also be written while it is FRESH — within fifteen minutes of
+ * last being changed, which is the window in which somebody is actually
+ * standing there setting it up. Claiming sets updated_at, so a reassigned
+ * keychain opens that window exactly when the new owner needs it, and it
+ * closes on its own.
+ *
+ * What this costs: for fifteen minutes after a card is claimed or edited,
+ * somebody who already knew that slug could overwrite the photo. They would
+ * need the code in advance and to be watching. After that the photo is settled
+ * again and only staff can change it. That is a far smaller exposure than a
+ * card permanently displaying the wrong person.
+ */
+
+create or replace function public.avatar_is_fresh(object_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  select exists (
+    select 1
+      from public.keychains
+     where slug = left(object_name, 10)
+       and name <> ''
+       and status not in ('AVAILABLE', 'BLOCKED')
+       and updated_at > now() - interval '15 minutes'
+  );
+$$;
+
+grant execute on function public.avatar_is_fresh(text) to anon, authenticated;
+
+drop policy if exists "a new owner may set the photo" on storage.objects;
+
+create policy "a new owner may set the photo"
+on storage.objects for update
+to anon, authenticated
+using      (bucket_id = 'avatars' and public.avatar_name_allowed(name) and public.avatar_is_fresh(name))
+with check (bucket_id = 'avatars' and public.avatar_name_allowed(name) and public.avatar_is_fresh(name));
+
 /* ============================ STAFF PHOTO EDITS =========================== */
 /*
  * Replacing or removing a photo from the staff dashboard, with no service key

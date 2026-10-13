@@ -195,10 +195,11 @@ export async function uploadAvatar(slug, file) {
         apikey: ANON_KEY,
         Authorization: `Bearer ${ANON_KEY}`,
         'Content-Type': blob.type,
-        // No upsert. A photo is set once, when the keychain is set up, and the
-        // storage policy grants INSERT and not UPDATE — asking to overwrite
-        // would be asking for a permission that deliberately does not exist,
-        // and would fail the whole request rather than the overwrite.
+        // Upsert, because a reused keychain may still be carrying the
+        // previous owner's file. Without this the new owner's upload is
+        // refused with 409 and their photo goes nowhere. The policy only
+        // allows the overwrite while the card is freshly set up.
+        'x-upsert': 'true',
         // Minutes, not a year. The filename is reused whenever a slug is, so
         // a long cache is how a new owner ends up wearing the old owner's
         // face. Repeat taps inside the window still come from the CDN.
@@ -232,9 +233,6 @@ export async function uploadAvatar(slug, file) {
       )
     }
     if (res.status === 409) {
-      // The name is taken. Only reachable if this keychain already has a
-      // photo, which the flow does not normally allow — worth its own message
-      // rather than a bare status code.
       throw new AvatarError('This keychain already has a photo.', 'ALREADY_HAS_PHOTO')
     }
     if (res.status === 413) {
