@@ -198,8 +198,18 @@ function PhotoSection({ id, slug }) {
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const fileRef = useRef(null)
+  const imgRef = useRef(null)
 
   const src = avatarUrl(slug, version || undefined)
+
+  useEffect(() => {
+  // An <img> that is already in the browser cache can finish loading before
+  // React attaches onLoad, so the event fires into nothing and the photo stays
+  // at opacity 0 — present, decoded, invisible. Asking the element directly
+  // covers that; onLoad still covers the slow case.
+    const el = imgRef.current
+    if (el && el.complete && el.naturalWidth > 0) setPresent(true)
+  }, [src])
 
   async function choose(event) {
     const file = event.target.files && event.target.files[0]
@@ -249,6 +259,7 @@ function PhotoSection({ id, slug }) {
         <div className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-full bg-brand-50 text-xl font-bold text-brand-700">
           <span className={present ? 'opacity-0' : ''}>—</span>
           <img
+            ref={imgRef}
             src={src}
             alt=""
             decoding="async"

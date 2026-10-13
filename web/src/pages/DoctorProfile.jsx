@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { fetchProfile, RESERVED_PATHS } from '../lib/api.js'
 import Spinner from '../components/Spinner.jsx'
@@ -234,12 +234,20 @@ function Avatar({ slug, name }) {
     .toUpperCase()
 
   const [loaded, setLoaded] = useState(false)
+  const imgRef = useRef(null)
   const src = avatarUrl(slug)
 
   // A different keychain is a different photo, and possibly none.
   useEffect(() => {
     setLoaded(false)
-  }, [slug])
+
+  // An <img> that is already in the browser cache can finish loading before
+  // React attaches onLoad, so the event fires into nothing and the photo stays
+  // at opacity 0 — present, decoded, invisible. Asking the element directly
+  // covers that; onLoad still covers the slow case.
+    const el = imgRef.current
+    if (el && el.complete && el.naturalWidth > 0) setLoaded(true)
+  }, [slug, src])
 
   return (
     <div className="pc-avatar relative mx-auto grid h-[92px] w-[92px] place-items-center overflow-hidden rounded-full border-4 border-white bg-brand-50 text-[30px] font-bold tracking-wide text-brand-700 shadow-lg shadow-brand-900/10">
@@ -247,6 +255,7 @@ function Avatar({ slug, name }) {
 
       {src && (
         <img
+          ref={imgRef}
           src={src}
           alt=""
           decoding="async"

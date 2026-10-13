@@ -201,10 +201,17 @@ export async function uploadAvatar(slug, file) {
       /* non-JSON error body */
     }
 
+    // 403 is the storage policy refusing, and it refuses for two quite
+    // different reasons: the keychain is not claimed yet, or it already has a
+    // photo and the public key may not replace one. Reporting the first when
+    // it is the second sends somebody off to fix a card that is already fine.
     if (res.status === 400 || res.status === 403) {
+      const alreadyThere = /row-level security/i.test(detail)
       throw new AvatarError(
-        'This keychain cannot take a photo yet. Set up the card first.',
-        'NOT_ALLOWED'
+        alreadyThere
+          ? 'This keychain already has a photo. Ask the Eqova team to change it.'
+          : 'This keychain cannot take a photo yet. Set up the card first.',
+        alreadyThere ? 'ALREADY_HAS_PHOTO' : 'NOT_ALLOWED'
       )
     }
     if (res.status === 409) {
